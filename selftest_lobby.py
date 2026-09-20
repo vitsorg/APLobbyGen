@@ -109,14 +109,16 @@ def main() -> int:
             staged_dir = os.path.join(root, "_stage")
             names = lb.stage(staged_dir)
             assert len(names) == len(lb.enabled()) == len(os.listdir(staged_dir))
-            assert len(names) == len(set(names)), "stage produced a duplicate filename"
-            ok(f"staged {len(names)} configs, all filenames distinct")
+            fns = [r["yaml"] for r in names]
+            assert len(fns) == len(set(fns)), "stage produced a duplicate filename"
+            assert all(r["slot"] and r["yaml_sha256"] for r in names)
+            ok(f"staged {len(names)} configs, all filenames distinct, slots carried")
 
             # Byte fidelity: the generator reads these, so a staging bug that
             # altered them would be both catastrophic and invisible.
             live = {e["slot"]: open(os.path.join(root, "players", f"{e['slot']}.yaml"),
                                     "rb").read() for e in lb.enabled()}
-            staged = {open(os.path.join(staged_dir, n), "rb").read() for n in names}
+            staged = {open(os.path.join(staged_dir, r["yaml"]), "rb").read() for r in names}
             assert staged == set(live.values()), "staged bytes differ from the lobby's"
             ok("staged configs are byte-identical to the lobby's copies")
 

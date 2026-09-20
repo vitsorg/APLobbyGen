@@ -1,20 +1,25 @@
-"""Pull an Archipelago lobby room's YAMLs, check the worlds exist, generate the seed.
+r"""Generate an Archipelago multiworld from the local lobby.
 
-    python aplobby.py <room url or id>
+    python aplobby.py import room <url>     add a lobby room's configs
+    python aplobby.py import folder <dir>   add a folder of configs
+    python aplobby.py list                  show the roster
+    python aplobby.py generate              build the seed
 
-Runs the whole pipeline: scrape the roster, download every config, resolve each
-game to an installed world file, generate, and write a lock manifest recording
-exactly what went in. Standard library only.
+The lobby on this machine owns the roster; a remote room is one way to put
+configs into it, not the thing that defines it. generate needs no network.
 
-Options:
-    --ap DIR         Archipelago install (default C:\\ProgramData\\Archipelago)
-    --out DIR        where to put the run (default ./runs/<room>-<timestamp>)
-    --dry-run        pull and check, but do not generate
+Options for generate:
+    --ap DIR         Archipelago install (default C:\ProgramData\Archipelago)
+    --out DIR        where to put the run (default ./runs/<timestamp>)
+    --dry-run        check the roster and worlds, writing nothing
     --allow-missing  generate anyway when some games have no world installed
+    --force          generate although the lobby reports problems
     --timeout SECS   generation timeout (default 1800)
 
 Exit codes: 0 generated, 1 preflight failed, 2 generation failed,
-            3 lobby unreachable, 4 generated but settings were silently dropped.
+            3 import source unreachable, 4 generated but settings were dropped.
+
+Standard library only.
 """
 from __future__ import annotations
 
@@ -32,10 +37,14 @@ import urllib.error
 import urllib.request
 import zipfile
 
+import lobby
+import sources
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+AP_DEFAULT = r"C:\ProgramData\Archipelago"
 LOBBY = "https://ap-lobby.ionium.us"
 UA = {"User-Agent": "aplobby-gen"}
 
-# Options every world accepts; they never indicate a missing world.
 sha256 = lambda b: hashlib.sha256(b).hexdigest()
 
 
@@ -110,34 +119,6 @@ def yaml_fields(data: bytes):
     return grab("name"), grab("game")
 
 
-def collect_extras(extras_dir: str, players_dir: str):
-    """Copy hand-added configs into the run, after the lobby pull.
-
-    Anything in extras/ joins every run. A file whose name collides with a
-    pulled config is kept under a suffixed name rather than overwriting it -
-    the lobby's copy is the one the room actually validated.
-    """
-    if not os.path.isdir(extras_dir):
-        return []
-    added = []
-    for fn in sorted(os.listdir(extras_dir)):
-        if not fn.lower().endswith((".yaml", ".yml")):
-            continue
-        src = os.path.join(extras_dir, fn)
-        data = open(src, "rb").read()
-        name, game = yaml_fields(data)
-        dest_name = fn
-        if os.path.exists(os.path.join(players_dir, dest_name)):
-            stem, ext = os.path.splitext(fn)
-            dest_name = f"{stem}_extra{ext}"
-        with open(os.path.join(players_dir, dest_name), "wb") as fh:
-            fh.write(data)
-        added.append({"player": name or f"(unnamed: {fn})", "game": game,
-                      "yaml": dest_name, "yaml_bytes": len(data),
-                      "yaml_sha256": sha256(data), "source": "extras"})
-    return added
-
-
 # ---------------------------------------------------------------- worlds
 
 def world_game(data: bytes):
@@ -203,185 +184,361 @@ def index_worlds(ap_dir: str):
     return index
 
 
-# ---------------------------------------------------------------- pipeline
+# ---------------------------------------------------------------- preflight
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description="Pull a lobby room and generate its seed.")
-    ap.add_argument("room", help="room URL or id")
-    ap.add_argument("--ap", default=r"C:\ProgramData\Archipelago")
-    ap.add_argument("--out")
-    ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--allow-missing", action="store_true")
-    ap.add_argument("--timeout", type=int, default=1800)
-    ap.add_argument("--extras", help="folder of hand-added configs to include "
-                    "(default ./extras)")
-    ap.add_argument("--no-extras", action="store_true",
-                    help="ignore the extras folder for this run")
-    ap.add_argument("--warn-ok", action="store_true",
-                    help="exit 0 even when a config had settings silently dropped")
-    args = ap.parse_args()
+def preflight(players, ap_dir):
+    """Resolve each staged player's game to an installed world file.
 
-    room = room_id(args.room)
-    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    out = args.out or os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                   "runs", f"{room[:8]}-{stamp}")
-    players_dir = os.path.join(out, "Players")
-    output_dir = os.path.join(out, "output")
-    os.makedirs(players_dir, exist_ok=True)
-    os.makedirs(output_dir, exist_ok=True)
+    `players` are the records stage() produced; each gains 'world' and
+    'must_match'. Returns (index, used, missing).
 
-    print(f"room   {room}")
-    print(f"out    {out}\n")
-
-    # 1. roster ---------------------------------------------------------
-    try:
-        roster = scrape_roster(room)
-    except (urllib.error.URLError, RuntimeError) as exc:
-        print(f"could not read the room: {exc}")
-        return 3
-    print(f"roster {len(roster)} players")
-
-    # 2. configs --------------------------------------------------------
-    entries = []
-    for player, game, yid in roster:
-        data = fetch(f"{LOBBY}/room/{room}/download/{yid}")
-        fn = safe_name(player, game)
-        with open(os.path.join(players_dir, fn), "wb") as fh:
-            fh.write(data)
-        entries.append({"player": player, "game": game, "yaml": fn,
-                        "yaml_bytes": len(data), "yaml_sha256": sha256(data)})
-    print(f"pulled {len(entries)} configs")
-
-    # 2b. hand-added configs --------------------------------------------
-    extras_dir = args.extras or os.path.join(os.path.dirname(os.path.abspath(__file__)), "extras")
-    if not args.no_extras:
-        extra = collect_extras(extras_dir, players_dir)
-        for e in extra:
-            flag = "" if e["game"] else "   <- no 'game:' line, generation will reject it"
-            print(f"  + extra  {e['player']:20} {e['game'] or '?'}{flag}")
-        entries += extra
-        if extra:
-            print(f"added {len(extra)} config(s) from {extras_dir}")
-    print()
-
-    # 3. preflight ------------------------------------------------------
-    index = index_worlds(args.ap)
-    print(f"worlds {len(index)} games installed")
-    missing, used = [], {}
-    for e in entries:
-        hit = index.get(e["game"])
+    One implementation, used by both the command line and the GUI - they used
+    to each decide this for themselves and had already drifted apart.
+    """
+    index = index_worlds(ap_dir)
+    used, missing = {}, []
+    for p in players:
+        hit = index.get(p.get("game"))
+        p["world"] = hit["file"] if hit else None
+        p["must_match"] = bool(hit and hit["ships_client_code"])
         if hit:
-            used[e["game"]] = hit
-            e["world"] = hit["file"]
+            used[p["game"]] = hit
         else:
-            missing.append(e)
-            e["world"] = None
+            missing.append(p)
+    return index, used, missing
 
-    # A config with no 'game:' line sorts as None and raises TypeError against
-    # a str - which happened right after the friendly warning about that exact
-    # case, so the run died before it could tell you.
-    for e in sorted(entries, key=lambda x: (x["game"] is None, x["game"] or "")):
-        hit = index.get(e["game"])
-        if hit:
-            mark = "*" if hit["ships_client_code"] else " "
-            print(f"  ok  {mark} {e['game'][:38]:38} {hit['file']}")
-        else:
-            print(f"  --    {e['game'][:38]:38} NO WORLD INSTALLED")
 
-    if missing:
-        print(f"\n{len(missing)} game(s) have no installed world:")
-        for e in missing:
-            print(f"  {e['player']}  {e['game']}")
-        if not args.allow_missing:
-            print("\nInstall the missing world files into custom_worlds, or pass "
-                  "--allow-missing to generate without them (those players are "
-                  "still included and generation will fail).")
-            return 1
-
-    if args.dry_run:
-        print("\ndry run - stopping before generation")
-        return 0
-
-    # 4. generate -------------------------------------------------------
-    exe = os.path.join(args.ap, "ArchipelagoGenerate.exe")
+def run_generation(players_dir, output_dir, ap_dir, timeout, log_path):
+    """Invoke the generator. Returns (seed_zip or None, log text, exit code)."""
+    exe = os.path.join(ap_dir, "ArchipelagoGenerate.exe")
     if not os.path.isfile(exe):
-        print(f"generator not found: {exe}")
-        return 2
-    log_path = os.path.join(out, "generate.log")
-    print("\ngenerating...")
+        raise FileNotFoundError(exe)
     with open(log_path, "wb") as log:
         proc = subprocess.run([exe, "--player_files_path", players_dir,
                                "--outputpath", output_dir],
                               stdout=log, stderr=subprocess.STDOUT,
-                              stdin=subprocess.DEVNULL, timeout=args.timeout)
-    zips = [f for f in os.listdir(output_dir) if f.endswith(".zip")]
-    log_text = open(log_path, encoding="utf-8", errors="replace").read()
+                              stdin=subprocess.DEVNULL, timeout=timeout)
+    text = open(log_path, encoding="utf-8", errors="replace").read()
+    zips = sorted(f for f in os.listdir(output_dir) if f.endswith(".zip"))
+    return (os.path.join(output_dir, zips[0]) if zips else None), text, proc.returncode
 
-    if not zips:
-        print(f"generation failed (exit {proc.returncode}) - see {log_path}")
+
+def extract_spoiler(seed_zip, out_dir):
+    """Lift the spoiler out of the seed so it survives without unpacking."""
+    try:
+        zf = zipfile.ZipFile(seed_zip)
+        inner = next((n for n in zf.namelist() if n.endswith("_Spoiler.txt")), None)
+        if not inner:
+            return None
+        path = os.path.join(out_dir, os.path.basename(inner))
+        with open(path, "wb") as fh:
+            fh.write(zf.read(inner))
+        return path
+    except (OSError, zipfile.BadZipFile):
+        return None
+
+
+def warnings_from(log_text):
+    return [l.strip() for l in log_text.splitlines()
+            if "not a valid option" in l or "Invalid or missing manifest" in l]
+
+
+def run_sources(players):
+    """Where this roster came from, coarsely - one record per origin.
+
+    Per-file ids belong in the lobby, not in a run lock: what a run wants to
+    record is 'these configs came from that room', not twenty-one paths.
+    """
+    seen, out = set(), []
+    for p in players:
+        s = p.get("source") or {}
+        key = (s.get("kind"), s.get("room") or s.get("archive") or "")
+        if key in seen:
+            continue
+        seen.add(key)
+        rec = {"kind": s.get("kind")}
+        for extra in ("room", "archive", "run"):
+            if s.get(extra):
+                rec[extra] = s[extra]
+        out.append(rec)
+    return out
+
+
+def write_lock(path, *, players, used, warnings, ap_dir, seed_zip, spoiler, excluded):
+    """Record exactly what went into this seed, beside the seed."""
+    lock = {
+        "schema": "aplobby-run/2",
+        "generated": datetime.datetime.now().isoformat(timespec="seconds"),
+        "archipelago_version": ap_version(ap_dir),
+        "sources": run_sources(players),
+        "seed_zip": os.path.basename(seed_zip) if seed_zip else None,
+        "seed_sha256": sha256(open(seed_zip, "rb").read()) if seed_zip else None,
+        "spoiler": os.path.basename(spoiler) if spoiler else None,
+        "players": [{k: v for k, v in p.items() if k != "must_match"} for p in players],
+        "excluded": excluded,
+        "worlds": {g: {k: v for k, v in w.items() if k != "path"} for g, w in used.items()},
+        "warnings": warnings,
+    }
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(lock, fh, indent=2, ensure_ascii=False)
+    return lock
+
+
+def new_run_dir(base=None):
+    """A fresh runs/<timestamp> directory, created only when it is needed.
+
+    Made with mkdir rather than makedirs(exist_ok=True) so two generations
+    started in the same second cannot land in one directory - the old room-id
+    prefix hid that by accident.
+    """
+    base = base or os.path.join(HERE, "runs")
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    for n in range(1, 50):
+        path = os.path.join(base, stamp if n == 1 else f"{stamp}-{n}")
+        try:
+            os.makedirs(path)
+            return path
+        except FileExistsError:
+            continue
+    raise RuntimeError(f"could not make a run directory under {base}")
+
+
+# ---------------------------------------------------------------- commands
+
+def cmd_import(args) -> int:
+    """Pull configs from a source into the local lobby."""
+    try:
+        if args.what == "room":
+            got = sources.ionium_room(args.target,
+                                      progress=lambda i, n, who:
+                                      print(f"  {i:>3}/{n}  {who}"))
+        elif args.what == "folder":
+            got = sources.folder(args.target)
+        elif args.what == "zip":
+            got = sources.archive(args.target)
+        else:
+            got = sources.files(args.targets)
+    except (sources.SourceError, ValueError) as exc:
+        print(f"could not read that source: {exc}")
+        return 3
+
+    tally = {"added": 0, "updated": 0, "unchanged": 0}
+    with lobby.locked(args.lobby) as lb:
+        for data, src in got:
+            action, entry = lb.upsert(data, src)
+            tally[action] += 1
+            if action != "unchanged":
+                print(f"  {action:9} {entry['slot']}  {entry.get('name') or '?'}"
+                      f"  ({entry.get('game') or 'no game: line'})")
+        print(f"\n{tally['added']} added, {tally['updated']} updated, "
+              f"{tally['unchanged']} unchanged - {len(lb.entries)} in the lobby")
+        for p in lb.problems():
+            print(f"  ! {p}")
+    return 0
+
+
+def cmd_list(args) -> int:
+    """Show the lobby, and whether each game has a world installed."""
+    with lobby.locked(args.lobby) as lb:
+        if not lb.entries:
+            print("the lobby is empty - import a room, a folder or a zip")
+            return 0
+        index = index_worlds(args.ap) if args.ap else {}
+        print(f"{'slot':6} {'':1} {'player':22} {'game':30} world")
+        for e in sorted(lb.entries, key=lambda x: x["slot"]):
+            hit = index.get(e.get("game"))
+            mark = " " if e.get("enabled", True) else "-"
+            world = hit["file"] if hit else ("" if not index else "NOT INSTALLED")
+            flag = "!" if e.get("missing") else " "
+            print(f"{e['slot']:6} {mark}{flag}{(e.get('name') or '?')[:22]:22} "
+                  f"{(e.get('game') or '?')[:30]:30} {world}")
+        off = [e for e in lb.entries if not e.get("enabled", True)]
+        print(f"\n{len(lb.enabled())} enabled" + (f", {len(off)} sitting out" if off else ""))
+        for p in lb.problems():
+            print(f"  ! {p}")
+    return 0
+
+
+def cmd_slot(args) -> int:
+    """enable / disable / remove one slot."""
+    with lobby.locked(args.lobby) as lb:
+        try:
+            if args.action == "remove":
+                e = lb.remove(args.slot)
+                print(f"removed {e['slot']} ({e.get('name')}) - its history is kept")
+            else:
+                e = lb.set_enabled(args.slot, args.action == "enable")
+                print(f"{e['slot']} ({e.get('name')}) is now "
+                      f"{'in' if e['enabled'] else 'sitting out'}")
+        except lobby.LobbyError as exc:
+            print(exc)
+            return 1
+    return 0
+
+
+def cmd_generate(args) -> int:
+    """Generate a seed from the local lobby. No network involved."""
+    with lobby.locked(args.lobby) as lb:
+        if not lb.enabled():
+            print("nothing to generate - the lobby has no enabled players")
+            return 1
+        problems = lb.problems()
+        for p in problems:
+            print(f"  ! {p}")
+        if problems and not args.force:
+            print("\nFix those, or pass --force to generate anyway.")
+            return 1
+
+        # Preflight off the roster itself. Nothing is written until we know
+        # the run is actually going ahead - the old code created a directory
+        # first and left one behind every time it stopped early.
+        players = lb.records()
+        excluded = [{"slot": e["slot"], "player": e.get("name")}
+                    for e in lb.entries if not e.get("enabled", True)]
+        print(f"roster {len(players)} players"
+              + (f", {len(excluded)} sitting out" if excluded else ""))
+
+        index, used, missing = preflight(players, args.ap)
+        print(f"worlds {len(index)} games installed\n")
+        for p in sorted(players, key=lambda x: (x["game"] is None, x["game"] or "")):
+            if p["world"]:
+                print(f"  ok  {'*' if p['must_match'] else ' '} "
+                      f"{(p['game'] or '?')[:38]:38} {p['world']}")
+            else:
+                print(f"  --    {(p['game'] or '?')[:38]:38} NO WORLD INSTALLED")
+
+        if missing and not args.allow_missing:
+            print(f"\n{len(missing)} game(s) have no installed world:")
+            for p in missing:
+                print(f"  {p.get('player')}  {p.get('game')}")
+            print("\nInstall them into custom_worlds, or pass --allow-missing.")
+            return 1
+
+        if args.dry_run:
+            print("\ndry run - nothing written")
+            return 0
+
+        out = args.out or new_run_dir()
+        players_dir = os.path.join(out, "Players")
+        output_dir = os.path.join(out, "output")
+        os.makedirs(output_dir, exist_ok=True)
+        print(f"out    {out}")
+        staged = {r["slot"]: r["yaml"] for r in lb.stage(players_dir)}
+        for p in players:
+            p["yaml"] = staged[p["slot"]]
+
+    print("\ngenerating...")
+    try:
+        seed_zip, log_text, code = run_generation(
+            players_dir, output_dir, args.ap, args.timeout,
+            os.path.join(out, "generate.log"))
+    except FileNotFoundError as exc:
+        print(f"generator not found: {exc}")
+        return 2
+
+    if not seed_zip:
+        print(f"generation failed (exit {code}) - see {os.path.join(out, 'generate.log')}")
         for line in log_text.splitlines():
             if re.search(r"Exception|Error|invalid", line):
                 print("  " + line.strip()[:160])
         return 2
 
-    seed_zip = os.path.join(output_dir, zips[0])
-    warn = [l.strip() for l in log_text.splitlines()
-            if "not a valid option" in l or "Invalid or missing manifest" in l]
-
-    # Lift the spoiler out of the zip so it survives independently and can be
-    # read without unpacking. The copy inside the zip stays where it is.
-    spoiler_path = None
-    try:
-        zf = zipfile.ZipFile(seed_zip)
-        inner = next((n for n in zf.namelist() if n.endswith("_Spoiler.txt")), None)
-        if inner:
-            spoiler_path = os.path.join(out, os.path.basename(inner))
-            with open(spoiler_path, "wb") as fh:
-                fh.write(zf.read(inner))
-    except Exception as exc:
-        print(f"could not extract the spoiler: {exc}")
-
-    # 5. lock -----------------------------------------------------------
-    lock = {
-        "schema": "aplobby-run/1",
-        "generated": datetime.datetime.now().isoformat(timespec="seconds"),
-        "lobby_room": room,
-        "archipelago_version": ap_version(args.ap),
-        "seed_zip": os.path.basename(seed_zip),
-        "seed_sha256": sha256(open(seed_zip, "rb").read()),
-        "spoiler": os.path.basename(spoiler_path) if spoiler_path else None,
-        "players": entries,
-        "worlds": {g: {k: v for k, v in w.items() if k != "path"} for g, w in used.items()},
-        "warnings": warn,
-    }
-    with open(os.path.join(out, "run.lock.json"), "w") as fh:
-        json.dump(lock, fh, indent=2)
+    warn = warnings_from(log_text)
+    spoiler = extract_spoiler(seed_zip, out)
+    write_lock(os.path.join(out, "run.lock.json"), players=players, used=used,
+               warnings=warn, ap_dir=args.ap, seed_zip=seed_zip,
+               spoiler=spoiler, excluded=excluded)
 
     print(f"\nseed   {seed_zip}")
     print(f"       {os.path.getsize(seed_zip):,} bytes")
     print(f"lock   {os.path.join(out, 'run.lock.json')}")
-    if spoiler_path:
-        print(f"spoiler {spoiler_path}")
-        print(f"        {os.path.getsize(spoiler_path):,} bytes - full playthrough, do not share")
-    if warn:
-        print(f"\n{len(warn)} warning(s):")
-        for w in warn:
-            print("  " + w[:160])
-    must = [w["file"] for w in used.values() if w["ships_client_code"]]
+    if spoiler:
+        print(f"spoiler {spoiler}")
+        print(f"        {os.path.getsize(spoiler):,} bytes - full playthrough, do not share")
+    must = sorted(w["file"] for w in used.values() if w["ships_client_code"])
     if must:
-        print(f"\nplayers of these must have the identical world file: {', '.join(sorted(must))}")
+        print(f"\nplayers of these must have the identical world file: {', '.join(must)}")
 
     # A dropped option is not a crash: the seed generates and looks fine, but a
     # player quietly does not get the game they configured. That has happened
-    # four times in this room, so treat it as a failure unless waived.
+    # four times in one room, so treat it as a failure unless waived.
     dropped = [w for w in warn if "not a valid option" in w]
-    if dropped and not args.warn_ok:
-        print(f"\n{len(dropped)} setting(s) were silently dropped - a config expects a newer "
-              "world than the one installed.")
-        print("The seed above is usable, but those players are not getting what they asked for.")
-        print("Update the world file and re-run, or pass --warn-ok to accept it.")
-        return 4
+    if dropped:
+        print(f"\n{len(dropped)} setting(s) were silently dropped - a config expects a "
+              "newer world than the one installed:")
+        for w in dropped[:10]:
+            print("  " + w[:160])
+        if not args.warn_ok:
+            print("\nThe seed is usable, but those players are not getting what they "
+                  "asked for. Update the world and re-run, or pass --warn-ok.")
+            return 4
     return 0
+
+
+# ---------------------------------------------------------------- entry point
+
+def build_parser():
+    ap = argparse.ArgumentParser(
+        prog="aplobby",
+        description="Generate an Archipelago multiworld from the local lobby.")
+    ap.add_argument("--lobby", default=None,
+                    help="lobby folder (default ./lobby)")
+    sub = ap.add_subparsers(dest="cmd")
+
+    imp = sub.add_parser("import", help="add configs to the lobby")
+    imps = imp.add_subparsers(dest="what", required=True)
+    for what, meta in (("room", "room URL or id"), ("folder", "folder of .yaml files"),
+                       ("zip", "zip containing .yaml files")):
+        q = imps.add_parser(what)
+        q.add_argument("target", metavar=meta)
+    q = imps.add_parser("file")
+    q.add_argument("targets", nargs="+", metavar="config.yaml")
+    imp.set_defaults(func=cmd_import)
+
+    ls = sub.add_parser("list", help="show the lobby")
+    ls.add_argument("--ap", default=AP_DEFAULT)
+    ls.set_defaults(func=cmd_list)
+
+    for action in ("enable", "disable", "remove"):
+        s = sub.add_parser(action, help=f"{action} one slot")
+        s.add_argument("slot")
+        s.set_defaults(func=cmd_slot, action=action)
+
+    gen = sub.add_parser("generate", help="generate a seed from the lobby")
+    gen.add_argument("--ap", default=AP_DEFAULT)
+    gen.add_argument("--out")
+    gen.add_argument("--dry-run", action="store_true")
+    gen.add_argument("--allow-missing", action="store_true")
+    gen.add_argument("--force", action="store_true",
+                     help="generate even though the lobby reports problems")
+    gen.add_argument("--timeout", type=int, default=1800)
+    gen.add_argument("--warn-ok", action="store_true",
+                     help="exit 0 even when a config had settings silently dropped")
+    gen.set_defaults(func=cmd_generate)
+    return ap
+
+
+def main(argv=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+
+    # Compatibility: this tool used to take a bare room URL and do everything.
+    # Keep that working rather than erroring on muscle memory.
+    known = {"import", "list", "generate", "enable", "disable", "remove", "-h", "--help"}
+    if argv and argv[0] not in known and not argv[0].startswith("-"):
+        try:
+            room_id(argv[0])
+        except ValueError:
+            pass
+        else:
+            print(f"note: '{argv[0]}' read as 'import room' followed by 'generate'\n")
+            rc = main(["import", "room", argv[0]])
+            return rc if rc else main(["generate"] + argv[1:])
+
+    args = build_parser().parse_args(argv)
+    if not getattr(args, "cmd", None):
+        build_parser().print_help()
+        return 0
+    return args.func(args)
 
 
 if __name__ == "__main__":

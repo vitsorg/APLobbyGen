@@ -124,7 +124,7 @@ def main() -> int:
                 lb.upsert(data, src)
             assert len(lb.entries) == 21
             staged = lb.stage(os.path.join(tmp, "Players"))
-            assert len(staged) == 21
+            assert len(staged) == 21 and all(r["slot"] for r in staged)
             ok("end to end: folder -> lobby -> 21 staged configs, no network")
 
             # And the same import again changes nothing.

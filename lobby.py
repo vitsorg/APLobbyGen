@@ -402,6 +402,21 @@ class Lobby:
     def enabled(self) -> list[dict]:
         return [e for e in self.entries if e.get("enabled", True)]
 
+    @staticmethod
+    def _record(e: dict) -> dict:
+        """One player as the run lock wants them, independent of staging."""
+        return {"slot": e["slot"], "player": e.get("name"), "game": e.get("game"),
+                "yaml_bytes": e.get("bytes"), "yaml_sha256": e.get("sha256"),
+                "source": (e.get("sources") or [{}])[-1]}
+
+    def records(self) -> list[dict]:
+        """The enabled roster, without writing anything.
+
+        Preflight needs only the games, so it can run - and a dry run can
+        finish - without creating a directory or copying a file.
+        """
+        return [self._record(e) for e in self.enabled()]
+
     def problems(self) -> list[str]:
         """Everything that would make a generation wrong, in plain words."""
         out = []
@@ -426,6 +441,10 @@ class Lobby:
     def stage(self, players_dir: str) -> list[str]:
         """Copy the enabled configs into a run's Players directory.
 
+        Returns one record per staged player - slot, readable filename, and the
+        bytes' identity - which is exactly what the run lock needs, so nothing
+        downstream has to re-derive the mapping and get it subtly wrong.
+
         Readable names are minted here and nowhere else, because this directory
         is disposable - a collision suffix costs nothing and never becomes an
         identity. Asserts the count, since a run that quietly generates with
@@ -447,7 +466,7 @@ class Lobby:
                 n += 1
             _atomic_write(os.path.join(players_dir, fn),
                           open(src, "rb").read(), self.tmp_dir)
-            written.append(fn)
+            written.append({**self._record(e), "yaml": fn})
         if len(written) != len(want):
             raise LobbyError(f"staged {len(written)} configs for {len(want)} enabled "
                              "players; refusing to generate a short roster")
