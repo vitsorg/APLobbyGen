@@ -1,26 +1,27 @@
-"""Desktop front end for aplobby.py.
+"""Desktop front end for the local lobby.
 
-Paste a lobby room URL, pull the roster, see at a glance which games this
-install can actually handle, then generate. Standard library only (tkinter).
+The lobby on this machine owns the roster. Import configs into it from a lobby
+room, a folder, a zip or individual files, see at a glance which games this
+install can actually handle, then generate - with no network involved.
+
+Standard library only (tkinter).
 
     python aplobby_gui.py
 """
 from __future__ import annotations
 
-import datetime
 import json
 import os
 import queue
-import subprocess
-import sys
 import threading
 import zipfile
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, simpledialog
 
 import aplobby as core
+import lobby
+import sources
 
-DEFAULT_AP = r"C:\ProgramData\Archipelago"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -35,44 +36,62 @@ class App(ttk.Frame):
         self.rowconfigure(5, weight=2)
 
         self.msgs: queue.Queue = queue.Queue()
-        self.roster: list = []
-        self.index: dict = {}
-        self.room: str | None = None
+        self.rows: list = []
+        # None means "not scanned yet", {} means "scanned and nothing installed".
+        # Collapsing those two is why Generate used to light up too early.
+        self.index: dict | None = None
         self.run_dir: str | None = None
         self.seed_zip: str | None = None
         self.published: dict | None = None
         self.spoiler_path: str | None = None
         self.busy = False
+        self.lobby_root = os.path.join(HERE, "lobby")
 
-        self._build_source()
+        self._build_lobby_bar()
         self._build_actions()
         self._build_table()
         self._build_log()
         self._build_status()
 
         self.after(100, self._drain)
+        # Load and preflight on the worker thread: index_worlds() hashes every
+        # installed apworld, which is hundreds of megabytes and would freeze
+        # the window if it ran here.
+        self.after(150, self.reload)
 
     # ---------------------------------------------------------- layout
 
-    def _build_source(self):
-        box = ttk.LabelFrame(self, text="Lobby room", padding=8)
+    def _build_lobby_bar(self):
+        box = ttk.LabelFrame(self, text="Lobby", padding=8)
         box.grid(row=0, column=0, sticky="ew")
         box.columnconfigure(1, weight=1)
 
-        ttk.Label(box, text="URL or id").grid(row=0, column=0, padx=(0, 8))
-        self.room_var = tk.StringVar()
-        entry = ttk.Entry(box, textvariable=self.room_var)
-        entry.grid(row=0, column=1, sticky="ew")
-        entry.bind("<Return>", lambda _e: self.pull())
+        self.lobby_summary = tk.StringVar(value="opening the lobby...")
+        ttk.Label(box, textvariable=self.lobby_summary).grid(
+            row=0, column=0, columnspan=2, sticky="w")
 
-        self.pull_btn = ttk.Button(box, text="Pull roster", command=self.pull)
-        self.pull_btn.grid(row=0, column=2, padx=(8, 0))
+        btns = ttk.Frame(box)
+        btns.grid(row=0, column=2, sticky="e")
+
+        self.import_btn = ttk.Menubutton(btns, text="Import...")
+        menu = tk.Menu(self.import_btn, tearoff=False)
+        menu.add_command(label="From a lobby room...", command=self.import_room)
+        menu.add_command(label="From a folder...", command=self.import_folder)
+        menu.add_command(label="From a zip...", command=self.import_zip)
+        menu.add_separator()
+        menu.add_command(label="Add config files...", command=self.import_files)
+        self.import_btn["menu"] = menu
+        self.import_btn.pack(side="left")
+
+        self.reload_btn = ttk.Button(btns, text="Reload", command=self.reload)
+        self.reload_btn.pack(side="left", padx=6)
+        ttk.Button(btns, text="Open folder", command=self.open_lobby).pack(side="left")
 
         ttk.Label(box, text="Archipelago").grid(row=1, column=0, pady=(8, 0), padx=(0, 8))
-        self.ap_var = tk.StringVar(value=DEFAULT_AP)
+        self.ap_var = tk.StringVar(value=core.AP_DEFAULT)
         ttk.Entry(box, textvariable=self.ap_var).grid(row=1, column=1, sticky="ew", pady=(8, 0))
         ttk.Button(box, text="Browse", command=self._pick_ap).grid(
-            row=1, column=2, padx=(8, 0), pady=(8, 0))
+            row=1, column=2, padx=(8, 0), pady=(8, 0), sticky="e")
 
     def _build_actions(self):
         bar = ttk.Frame(self)
@@ -82,17 +101,13 @@ class App(ttk.Frame):
                                   state="disabled")
         self.gen_btn.pack(side="left")
 
+        self.gen_reason = tk.StringVar(value="")
+        ttk.Label(bar, textvariable=self.gen_reason, foreground="#6b6b6b").pack(
+            side="left", padx=8)
+
         self.upstream_btn = ttk.Button(bar, text="Check upstream",
                                        command=self.check_upstream, state="disabled")
         self.upstream_btn.pack(side="left", padx=6)
-
-        self.players_btn = ttk.Button(bar, text="Add configs...",
-                                      command=self.open_players, state="disabled")
-        self.players_btn.pack(side="left", padx=(0, 6))
-
-        self.rescan_btn = ttk.Button(bar, text="Rescan", command=self.rescan,
-                                     state="disabled")
-        self.rescan_btn.pack(side="left", padx=(0, 6))
 
         self.allow_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(bar, text="Generate even with missing worlds",
@@ -105,12 +120,11 @@ class App(ttk.Frame):
 
         self.room_btn = ttk.Button(bar, text="Create room...", command=self.open_room_link,
                                    state="disabled")
-        self.room_btn.pack(side="left", padx=(0, 6))
+        self.room_btn.pack(side="left")
 
         self.spoiler_btn = ttk.Button(bar, text="Open spoiler", command=self.open_spoiler,
                                       state="disabled")
         self.spoiler_btn.pack(side="right", padx=6)
-
         self.open_btn = ttk.Button(bar, text="Open run folder", command=self.open_run,
                                    state="disabled")
         self.open_btn.pack(side="right")
@@ -124,21 +138,35 @@ class App(ttk.Frame):
         box.columnconfigure(0, weight=1)
         box.rowconfigure(0, weight=1)
 
-        cols = ("player", "game", "world", "version", "state")
-        self.tree = ttk.Treeview(box, columns=cols, show="headings", height=12)
-        for col, label, width in (("player", "Player", 136), ("game", "Game", 232),
-                                  ("world", "World file", 180), ("version", "Version", 120),
-                                  ("state", "Status", 124)):
+        cols = ("in", "slot", "player", "game", "world", "version", "state")
+        self.tree = ttk.Treeview(box, columns=cols, show="headings", height=12,
+                                 selectmode="extended")
+        for col, label, width, anchor in (
+                ("in", "In", 36, "center"), ("slot", "Slot", 54, "w"),
+                ("player", "Player", 130, "w"), ("game", "Game", 214, "w"),
+                ("world", "World file", 170, "w"), ("version", "Version", 108, "w"),
+                ("state", "Status", 128, "w")):
             self.tree.heading(col, text=label)
-            self.tree.column(col, width=width, anchor="w")
+            self.tree.column(col, width=width, anchor=anchor)
         self.tree.grid(row=0, column=0, sticky="nsew")
+        self.tree.bind("<Double-1>", lambda _e: self.toggle_selected())
 
-        bar = ttk.Scrollbar(box, orient="vertical", command=self.tree.yview)
-        bar.grid(row=0, column=1, sticky="ns")
-        self.tree.configure(yscrollcommand=bar.set)
+        sb = ttk.Scrollbar(box, orient="vertical", command=self.tree.yview)
+        sb.grid(row=0, column=1, sticky="ns")
+        self.tree.configure(yscrollcommand=sb.set)
 
         self.tree.tag_configure("missing", foreground="#b3261e")
         self.tree.tag_configure("match", foreground="#7a5200")
+        self.tree.tag_configure("out", foreground="#9a9a9a")
+
+        row = ttk.Frame(box)
+        row.grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        ttk.Button(row, text="Include", command=lambda: self.set_selected(True)).pack(side="left")
+        ttk.Button(row, text="Sit out", command=lambda: self.set_selected(False)).pack(
+            side="left", padx=6)
+        ttk.Button(row, text="Remove from lobby", command=self.remove_selected).pack(side="left")
+        ttk.Label(row, text="   double-click a row to include or exclude it",
+                  foreground="#6b6b6b").pack(side="left")
 
     def _build_log(self):
         box = ttk.LabelFrame(self, text="Log", padding=6)
@@ -148,12 +176,12 @@ class App(ttk.Frame):
 
         self.log = tk.Text(box, height=9, wrap="none", font=("Consolas", 9))
         self.log.grid(row=0, column=0, sticky="nsew")
-        bar = ttk.Scrollbar(box, orient="vertical", command=self.log.yview)
-        bar.grid(row=0, column=1, sticky="ns")
-        self.log.configure(yscrollcommand=bar.set, state="disabled")
+        sb = ttk.Scrollbar(box, orient="vertical", command=self.log.yview)
+        sb.grid(row=0, column=1, sticky="ns")
+        self.log.configure(yscrollcommand=sb.set, state="disabled")
 
     def _build_status(self):
-        self.status = tk.StringVar(value="Paste a room URL and pull the roster.")
+        self.status = tk.StringVar(value="Opening the lobby...")
         ttk.Label(self, textvariable=self.status, anchor="w").grid(
             row=6, column=0, sticky="ew", pady=(8, 0))
         self.bar = ttk.Progressbar(self, mode="determinate")
@@ -166,6 +194,16 @@ class App(ttk.Frame):
                                          title="Archipelago install folder")
         if chosen:
             self.ap_var.set(os.path.normpath(chosen))
+            self.reload()
+
+    def _snapshot(self):
+        """Tk variables read on the UI thread, for a worker to use safely.
+
+        Reading a Tk variable from another thread reaches into Tcl from the
+        wrong place; it usually appears to work and then fails as "main thread
+        is not in main loop". Workers get plain values instead.
+        """
+        return {"ap": self.ap_var.get(), "allow": self.allow_var.get()}
 
     def say(self, line=""):
         self.msgs.put(("log", line))
@@ -195,16 +233,16 @@ class App(ttk.Frame):
         if self.busy:
             return
         self.busy = True
-        self.pull_btn.configure(state="disabled")
-        self.gen_btn.configure(state="disabled")
-        self.upstream_btn.configure(state="disabled")
-        self.publish_btn.configure(state="disabled")
-        self.players_btn.configure(state="disabled")
-        self.rescan_btn.configure(state="disabled")
+        for b in (self.gen_btn, self.upstream_btn, self.publish_btn,
+                  self.reload_btn, self.import_btn):
+            b.configure(state="disabled")
 
         def run():
             try:
                 fn()
+            except (lobby.LobbyError, sources.SourceError) as exc:
+                self.say(f"  {exc}")
+                self.msgs.put(("status", str(exc)))
             except Exception as exc:  # surfaced in the log, never a silent death
                 self.say(f"ERROR  {exc}")
                 self.msgs.put(("status", f"Failed: {exc}"))
@@ -215,21 +253,30 @@ class App(ttk.Frame):
         threading.Thread(target=run, daemon=True).start()
 
     def _reenable(self):
-        self.pull_btn.configure(state="normal")
-        self.upstream_btn.configure(state="normal" if self.roster else "disabled")
-        for b in (self.players_btn, self.rescan_btn):
-            b.configure(state="normal" if self.run_dir else "disabled")
+        for b in (self.reload_btn, self.import_btn):
+            b.configure(state="normal")
+        self.upstream_btn.configure(state="normal" if self.rows else "disabled")
         self.publish_btn.configure(state="normal" if self.seed_zip else "disabled")
         self._refresh_gen_state()
 
     def _refresh_gen_state(self):
-        ready = bool(self.roster) and not self.busy
-        if ready and self._missing() and not self.allow_var.get():
-            ready = False
-        self.gen_btn.configure(state="normal" if ready else "disabled")
+        """Enable Generate, and when it is off say which of the reasons it is."""
+        reason = ""
+        if self.busy:
+            reason = "working..."
+        elif self.index is None:
+            reason = "still reading installed worlds"
+        elif not [r for r in self.rows if r.get("enabled", True)]:
+            reason = "no players are in - import some configs"
+        elif self._missing() and not self.allow_var.get():
+            n = len(self._missing())
+            reason = f"{n} game{'s' if n > 1 else ''} with no installed world"
+        self.gen_reason.set(reason)
+        self.gen_btn.configure(state="disabled" if reason else "normal")
 
     def _missing(self):
-        return [r for r in self.roster if not r.get("world")]
+        return [r for r in self.rows
+                if r.get("enabled", True) and not r.get("world")]
 
     @staticmethod
     def _anchors():
@@ -268,135 +315,195 @@ class App(ttk.Frame):
     def _fill(self, rows):
         self.tree.delete(*self.tree.get_children())
         for r in rows:
-            if not r.get("world"):
+            on = r.get("enabled", True)
+            if r.get("missing"):
+                state, tag = "config file gone", "missing"
+            elif not r.get("world"):
                 state, tag = "no world installed", "missing"
             elif r.get("must_match"):
                 state, tag = "world must match", "match"
             else:
                 state, tag = "ready", ""
-            self.tree.insert("", "end", tags=(tag,),
-                             values=(r["player"], r["game"], r.get("world") or "-",
-                                     r.get("version") or "-", state))
+            if not on:
+                tag = "out"
+                state = "sitting out"
+            self.tree.insert("", "end", iid=r["slot"], tags=(tag,),
+                             values=("Y" if on else "-", r["slot"],
+                                     r.get("name") or "?", r.get("game") or "?",
+                                     r.get("world") or "-", r.get("version") or "-",
+                                     state))
 
-    # ---------------------------------------------------------- actions
+    def _selected_slots(self):
+        return list(self.tree.selection())
 
-    def pull(self):
-        raw = self.room_var.get().strip()
-        if not raw:
-            messagebox.showinfo("Room needed", "Paste a lobby room URL or id first.")
-            return
-        self._work(lambda: self._pull(raw))
+    # ---------------------------------------------------------- lobby
 
-    def _pull(self, raw):
-        room = core.room_id(raw)
-        self.msgs.put(("status", "Reading the room..."))
-        self.msgs.put(("progress", 5))
-        self.say(f"room   {room}")
+    def _load_rows(self, lb, ap):
+        """Build display rows and preflight them, without touching the store.
 
-        roster = core.scrape_roster(room)
-        self.say(f"roster {len(roster)} players")
-
-        stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        self.run_dir = os.path.join(HERE, "runs", f"{room[:8]}-{stamp}")
-        players_dir = os.path.join(self.run_dir, "Players")
-        os.makedirs(players_dir, exist_ok=True)
-        os.makedirs(os.path.join(self.run_dir, "output"), exist_ok=True)
-
-        rows = []
-        for i, (player, game, yid) in enumerate(roster, 1):
-            data = core.fetch(f"{core.LOBBY}/room/{room}/download/{yid}")
-            fn = core.safe_name(player, game)
-            with open(os.path.join(players_dir, fn), "wb") as fh:
-                fh.write(data)
-            rows.append({"player": player, "game": game, "yaml": fn,
-                         "yaml_bytes": len(data), "yaml_sha256": core.sha256(data)})
-            self.msgs.put(("progress", 5 + int(70 * i / len(roster))))
-            self.msgs.put(("status", f"Pulled {i}/{len(roster)} configs"))
-
-        extras_dir = os.path.join(HERE, "extras")
-        for e in core.collect_extras(extras_dir, players_dir):
-            rows.append({"player": e["player"], "game": e["game"], "yaml": e["yaml"],
-                         "yaml_bytes": e["yaml_bytes"], "yaml_sha256": e["yaml_sha256"],
-                         "source": "extras"})
-            self.say(f"  + extra  {e['player']}  {e['game'] or '? no game: line'}")
-
-        self.say(f"pulled {len(rows)} configs into {players_dir}")
-
-        self.index = core.index_worlds(self.ap_var.get())
-        self.say(f"worlds {len(self.index)} games installed")
+        The rows are copies: preflight() writes 'world' and 'must_match' into
+        whatever it is given, and those are run facts, not lobby facts - they
+        must never end up persisted in lobby.json.
+        """
+        rows = [dict(e) for e in lb.entries]
+        index, _used, _missing = core.preflight(rows, ap)
         anchors = self._anchors()
         for r in rows:
-            hit = self.index.get(r["game"])
-            r["world"] = hit["file"] if hit else None
-            r["must_match"] = bool(hit and hit["ships_client_code"])
+            hit = index.get(r.get("game"))
             r["version"] = self._version_for(hit, anchors) if hit else None
-
-        self.roster = rows
-        self.room = room
+        self.index = index
+        self.rows = rows
         self.msgs.put(("rows", rows))
-        self.msgs.put(("progress", 100))
+        return rows
 
-        missing = [r for r in rows if not r["world"]]
-        for r in missing:
-            self.say(f"  MISSING  {r['player']}  {r['game']}")
-        if missing:
-            self.msgs.put(("status",
-                           f"{len(missing)} game(s) have no installed world - "
-                           "install them, or tick the override."))
-        else:
-            self.msgs.put(("status", f"{len(rows)} players ready to generate."))
+    def _summarise(self, lb, rows):
+        on = len([r for r in rows if r.get("enabled", True)])
+        out = len(rows) - on
+        text = f"{len(rows)} player{'s' if len(rows) != 1 else ''} in the lobby"
+        if out:
+            text += f" - {on} in, {out} sitting out"
+        self.msgs.put(("done", lambda: self.lobby_summary.set(text)))
+        for p in lb.problems():
+            self.say(f"  ! {p}")
 
-    def open_players(self):
-        """Open this run's Players folder so configs can be dropped in by hand."""
-        d = os.path.join(self.run_dir or "", "Players")
-        if os.path.isdir(d):
-            os.startfile(d)  # noqa: S606 - Windows shell open
-            self.msgs.put(("status", "Drop .yaml files in, then press Rescan."))
+    def reload(self):
+        snap = self._snapshot()
+        self._work(lambda: self._reload(snap))
 
-    def rescan(self):
-        """Re-read the Players folder and redo preflight.
-
-        Lets a config be added between the pull and generation without losing
-        what was already pulled - the table and the Generate gate both update.
-        """
-        self._work(self._rescan)
-
-    def _rescan(self):
-        players_dir = os.path.join(self.run_dir, "Players")
-        known = {r["yaml"] for r in self.roster}
-        anchors = self._anchors()
-        self.index = core.index_worlds(self.ap_var.get())
-        added = 0
-        for fn in sorted(os.listdir(players_dir)):
-            if not fn.lower().endswith((".yaml", ".yml")) or fn in known:
-                continue
-            data = open(os.path.join(players_dir, fn), "rb").read()
-            name, game = core.yaml_fields(data)
-            self.roster.append({"player": name or f"(unnamed: {fn})", "game": game or "?",
-                                "yaml": fn, "yaml_bytes": len(data),
-                                "yaml_sha256": core.sha256(data), "source": "added"})
-            added += 1
-            self.say(f"  + added  {name or fn}  {game or '? no game: line'}")
-        for r in self.roster:
-            hit = self.index.get(r["game"])
-            r["world"] = hit["file"] if hit else None
-            r["must_match"] = bool(hit and hit["ships_client_code"])
-            r["version"] = self._version_for(hit, anchors) if hit else None
-        self.msgs.put(("rows", self.roster))
-        missing = [r for r in self.roster if not r["world"]]
+    def _reload(self, snap):
+        self.msgs.put(("status", "Reading the lobby and the installed worlds..."))
+        with lobby.locked(self.lobby_root) as lb:
+            rows = self._load_rows(lb, snap["ap"])
+            self._summarise(lb, rows)
+        missing = self._missing()
         self.msgs.put(("status",
-                       f"{len(self.roster)} configs, {added} newly added"
-                       + (f" - {len(missing)} still have no world." if missing else ".")))
+                       f"{len(missing)} game(s) have no installed world."
+                       if missing else
+                       (f"{len(rows)} player(s) ready to generate." if rows else
+                        "The lobby is empty - import a room, a folder or a zip.")))
+
+    # ---------------------------------------------------------- importing
+
+    def import_room(self):
+        raw = simpledialog.askstring("Import from a lobby room",
+                                     "Room URL or id:", parent=self)
+        if raw and raw.strip():
+            self._work(lambda: self._import("room", raw.strip(), self._snapshot()))
+
+    def import_folder(self):
+        d = filedialog.askdirectory(title="Folder of .yaml configs")
+        if d:
+            self._work(lambda: self._import("folder", d, self._snapshot()))
+
+    def import_zip(self):
+        f = filedialog.askopenfilename(title="Zip containing .yaml configs",
+                                       filetypes=[("Zip archives", "*.zip"), ("All", "*.*")])
+        if f:
+            self._work(lambda: self._import("zip", f, self._snapshot()))
+
+    def import_files(self):
+        fs = filedialog.askopenfilenames(title="Config files",
+                                         filetypes=[("YAML", "*.yaml *.yml"), ("All", "*.*")])
+        if fs:
+            self._work(lambda: self._import("files", list(fs), self._snapshot()))
+
+    def _import(self, kind, target, snap):
+        self.msgs.put(("status", "Reading the source..."))
+        if kind == "room":
+            self.say(f"\nimporting from lobby room {target}")
+            got = sources.ionium_room(
+                target, progress=lambda i, n, who: self.msgs.put(
+                    ("progress", int(90 * i / n))))
+        elif kind == "folder":
+            self.say(f"\nimporting from {target}")
+            got = sources.folder(target)
+        elif kind == "zip":
+            self.say(f"\nimporting from {target}")
+            got = sources.archive(target)
+        else:
+            self.say(f"\nimporting {len(target)} file(s)")
+            got = sources.files(target)
+
+        tally = {"added": 0, "updated": 0, "unchanged": 0}
+        with lobby.locked(self.lobby_root) as lb:
+            for data, src in got:
+                action, entry = lb.upsert(data, src)
+                tally[action] += 1
+                if action != "unchanged":
+                    self.say(f"  {action:9} {entry['slot']}  {entry.get('name') or '?'}"
+                             f"  ({entry.get('game') or 'no game: line'})")
+            self.say(f"{tally['added']} added, {tally['updated']} updated, "
+                     f"{tally['unchanged']} unchanged")
+            rows = self._load_rows(lb, snap["ap"])
+            self._summarise(lb, rows)
+        self.msgs.put(("progress", 100))
+        self.msgs.put(("status", f"{len(rows)} player(s) in the lobby."))
+
+    def open_lobby(self):
+        os.makedirs(self.lobby_root, exist_ok=True)
+        os.startfile(self.lobby_root)  # noqa: S606 - Windows shell open
+        self.msgs.put(("status", "Press Reload after changing files by hand."))
+
+    # ---------------------------------------------------------- roster edits
+
+    def set_selected(self, on: bool):
+        slots = self._selected_slots()
+        if not slots:
+            return
+        snap = self._snapshot()
+        self._work(lambda: self._set_enabled(slots, on, snap))
+
+    def _set_enabled(self, slots, on, snap):
+        with lobby.locked(self.lobby_root) as lb:
+            for s in slots:
+                e = lb.set_enabled(s, on)
+                self.say(f"  {e['slot']} {e.get('name')} is "
+                         f"{'in' if on else 'sitting out'}")
+            rows = self._load_rows(lb, snap["ap"])
+            self._summarise(lb, rows)
+
+    def remove_selected(self):
+        slots = self._selected_slots()
+        if not slots:
+            return
+        who = ", ".join(self.tree.set(s, "player") for s in slots)
+        if not messagebox.askokcancel(
+                "Remove from the lobby",
+                f"Remove {who} from the lobby?\n\n"
+                "Their earlier configs stay in the lobby's history, so previous "
+                "runs remain reproducible. To leave someone out of just the next "
+                "seed, use 'Sit out' instead."):
+            return
+        snap = self._snapshot()
+        self._work(lambda: self._remove(slots, snap))
+
+    def _remove(self, slots, snap):
+        with lobby.locked(self.lobby_root) as lb:
+            for s in slots:
+                e = lb.remove(s)
+                self.say(f"  removed {e['slot']} {e.get('name')}")
+            rows = self._load_rows(lb, snap["ap"])
+            self._summarise(lb, rows)
+
+    def toggle_selected(self):
+        slots = self._selected_slots()
+        if not slots:
+            return
+        now_on = self.tree.set(slots[0], "in") == "Y"
+        self.set_selected(not now_on)
+
+    # ---------------------------------------------------------- upstream
 
     def check_upstream(self):
-        """Ask GitHub whether any world in this room has a newer build.
+        """Ask GitHub whether any world in the lobby has a newer build.
 
-        A stale world is the quiet failure: it generates fine, then drops the
-        settings a player wrote for a newer build. Worth knowing beforehand.
+        The lobby's games are what matter, so they are what gets checked -
+        never the whole installed catalogue.
         """
-        self._work(self._check_upstream)
+        snap = self._snapshot()
+        self._work(lambda: self._check_upstream(snap))
 
-    def _check_upstream(self):
+    def _check_upstream(self, snap):
         import check_upstream as up
 
         reg = {}
@@ -406,14 +513,14 @@ class App(ttk.Frame):
         registry = reg.get("repos", {})
         no_upstream = reg.get("no_upstream", {})
 
-        worlds = {r["world"] for r in self.roster if r.get("world")}
+        worlds = {r["world"] for r in self.rows if r.get("world")}
         if not worlds:
-            self.say("\nupstream check - no roster world resolved to an installed "
+            self.say("\nupstream check - no lobby game resolved to an installed "
                      "file, so there is nothing to check")
             self.msgs.put(("status", "Nothing to check against GitHub."))
             return
         self.msgs.put(("status", f"Checking {len(worlds)} world(s) against GitHub..."))
-        self.say(f"\nupstream check - {len(worlds)} world(s) in this room")
+        self.say(f"\nupstream check - {len(worlds)} world(s) in the lobby")
         behind = 0
         for i, fn in enumerate(sorted(worlds), 1):
             slug = fn[: -len(".apworld")]
@@ -421,9 +528,9 @@ class App(ttk.Frame):
             if slug in no_upstream:
                 self.say(f"  -  {slug:22} no upstream ({no_upstream[slug]})")
                 continue
-            folder = os.path.join(self.ap_var.get(), "custom_worlds", fn)
+            folder = os.path.join(snap["ap"], "custom_worlds", fn)
             if not os.path.isfile(folder):
-                folder = os.path.join(self.ap_var.get(), "lib", "worlds", fn)
+                folder = os.path.join(snap["ap"], "lib", "worlds", fn)
             try:
                 _slug, manifest, repos, _size = up.read_world(folder)
             except Exception as exc:
@@ -451,89 +558,95 @@ class App(ttk.Frame):
                 self.say(f"  ok {slug:22} {have or 'unversioned'} is current")
         self.msgs.put(("status",
                        f"{behind} world(s) behind upstream." if behind
-                       else "Every world in this room is current."))
+                       else "Every world in the lobby is current."))
+
+    # ---------------------------------------------------------- generate
 
     def generate(self):
-        self._work(self._generate)
+        snap = self._snapshot()
+        self._work(lambda: self._generate(snap))
 
-    def _generate(self):
-        ap = self.ap_var.get()
-        exe = os.path.join(ap, "ArchipelagoGenerate.exe")
-        if not os.path.isfile(exe):
-            raise RuntimeError(f"generator not found: {exe}")
+    def _generate(self, snap):
+        ap = snap["ap"]
 
-        players_dir = os.path.join(self.run_dir, "Players")
+        # Stage under the lock, then release it: generation takes minutes and
+        # there is no reason to hold the lobby shut for all of it.
+        with lobby.locked(self.lobby_root) as lb:
+            problems = lb.problems()
+            for p in problems:
+                self.say(f"  ! {p}")
+            if problems:
+                raise RuntimeError("fix the problems above before generating")
+            players = lb.records()
+            excluded = [{"slot": e["slot"], "player": e.get("name")}
+                        for e in lb.entries if not e.get("enabled", True)]
+            index, used, missing = core.preflight(players, ap)
+            if missing and not snap["allow"]:
+                raise RuntimeError(f"{len(missing)} game(s) have no installed world")
+
+            self.run_dir = core.new_run_dir()
+            staged = {r["slot"]: r["yaml"]
+                      for r in lb.stage(os.path.join(self.run_dir, "Players"))}
+            for p in players:
+                p["yaml"] = staged[p["slot"]]
+
         output_dir = os.path.join(self.run_dir, "output")
-        log_path = os.path.join(self.run_dir, "generate.log")
+        os.makedirs(output_dir, exist_ok=True)
+        self.say(f"\nout    {self.run_dir}")
+        self.say(f"staged {len(players)} players"
+                 + (f", {len(excluded)} sitting out" if excluded else ""))
 
         self.msgs.put(("status", "Generating - this can take several minutes."))
-        self.msgs.put(("progress", 0))
         self.bar.configure(mode="indeterminate")
         self.bar.start(12)
         self.say("generating...")
-
         try:
-            with open(log_path, "wb") as log:
-                subprocess.run([exe, "--player_files_path", players_dir,
-                                "--outputpath", output_dir],
-                               stdout=log, stderr=subprocess.STDOUT,
-                               stdin=subprocess.DEVNULL, timeout=1800)
+            seed_zip, log_text, code = core.run_generation(
+                os.path.join(self.run_dir, "Players"), output_dir, ap, 1800,
+                os.path.join(self.run_dir, "generate.log"))
+        except FileNotFoundError as exc:
+            raise RuntimeError(f"generator not found: {exc}")
         finally:
             self.bar.stop()
             self.bar.configure(mode="determinate")
             self.msgs.put(("progress", 100))
 
-        text = open(log_path, encoding="utf-8", errors="replace").read()
-        zips = [f for f in os.listdir(output_dir) if f.endswith(".zip")]
-        if not zips:
-            self.say("generation FAILED - offending lines:")
-            for line in text.splitlines():
+        if not seed_zip:
+            self.say(f"generation FAILED (exit {code}) - offending lines:")
+            for line in log_text.splitlines():
                 if "Exception" in line or "is invalid" in line:
                     self.say("  " + line.strip()[:150])
             raise RuntimeError("generation failed, see the log pane")
 
-        self.seed_zip = os.path.join(output_dir, zips[0])
-        size = os.path.getsize(self.seed_zip)
-        self.say(f"seed   {self.seed_zip}")
+        self.seed_zip = seed_zip
+        size = os.path.getsize(seed_zip)
+        self.say(f"seed   {seed_zip}")
         self.say(f"       {size:,} bytes")
 
-        # Lift the spoiler out so it survives and can be read without unpacking.
-        self.spoiler_path = None
-        try:
-            zf = zipfile.ZipFile(self.seed_zip)
-            inner = next((n for n in zf.namelist() if n.endswith("_Spoiler.txt")), None)
-            if inner:
-                self.spoiler_path = os.path.join(self.run_dir, os.path.basename(inner))
-                with open(self.spoiler_path, "wb") as fh:
-                    fh.write(zf.read(inner))
-                self.say(f"spoiler {os.path.basename(self.spoiler_path)} "
-                         f"({os.path.getsize(self.spoiler_path):,} B) - full playthrough")
-        except Exception as exc:
-            self.say(f"  could not extract the spoiler: {exc}")
+        self.spoiler_path = core.extract_spoiler(seed_zip, self.run_dir)
+        if self.spoiler_path:
+            self.say(f"spoiler {os.path.basename(self.spoiler_path)} "
+                     f"({os.path.getsize(self.spoiler_path):,} B) - full playthrough")
 
-        warn = [l.strip() for l in text.splitlines()
-                if "not a valid option" in l or "Invalid or missing manifest" in l]
+        warn = core.warnings_from(log_text)
         for w in warn:
             self.say("  warn " + w[:150])
 
-        # Filter on the lookup itself. Using .get() here would put a None into
-        # the dict and the comprehension below would call .items() on it.
-        used = {r["game"]: self.index[r["game"]] for r in self.roster
-                if r.get("world") and r["game"] in self.index}
-        lock = {
-            "schema": "aplobby-run/1",
-            "generated": datetime.datetime.now().isoformat(timespec="seconds"),
-            "lobby_room": self.room,
-            "archipelago_version": core.ap_version(self.ap_var.get()),
-            "seed_zip": os.path.basename(self.seed_zip),
-            "seed_sha256": core.sha256(open(self.seed_zip, "rb").read()),
-            "players": [{k: v for k, v in r.items() if k != "must_match"} for r in self.roster],
-            "worlds": {g: {k: v for k, v in w.items() if k != "path"} for g, w in used.items()},
-            "warnings": warn,
-        }
-        with open(os.path.join(self.run_dir, "run.lock.json"), "w") as fh:
-            json.dump(lock, fh, indent=2)
+        core.write_lock(os.path.join(self.run_dir, "run.lock.json"),
+                        players=players, used=used, warnings=warn, ap_dir=ap,
+                        seed_zip=seed_zip, spoiler=self.spoiler_path,
+                        excluded=excluded)
         self.say("lock   run.lock.json written")
+
+        must = sorted(w["file"] for w in used.values() if w["ships_client_code"])
+        if must:
+            self.say("players of these must have the identical world file: "
+                     + ", ".join(must))
+
+        dropped = [w for w in warn if "not a valid option" in w]
+        if dropped:
+            self.say(f"{len(dropped)} setting(s) were silently dropped - those players "
+                     "are not getting what they configured.")
 
         self.msgs.put(("done", lambda: (self.open_btn.configure(state="normal"),
                                         self.copy_btn.configure(state="normal"),
@@ -541,8 +654,10 @@ class App(ttk.Frame):
                                         self.spoiler_btn.configure(
                                             state="normal" if self.spoiler_path else "disabled"))))
         self.msgs.put(("status",
-                       f"Seed ready: {os.path.basename(self.seed_zip)} "
-                       f"({size:,} bytes)" + (f" - {len(warn)} warning(s)" if warn else "")))
+                       f"Seed ready: {os.path.basename(seed_zip)} ({size:,} bytes)"
+                       + (f" - {len(warn)} warning(s)" if warn else "")))
+
+    # ---------------------------------------------------------- publish
 
     def publish(self):
         """Upload the generated seed to archipelago.gg.
@@ -583,7 +698,8 @@ class App(ttk.Frame):
         self.say("  (opening the room link is what actually starts the server)")
 
         if self.run_dir:
-            with open(os.path.join(self.run_dir, "published.json"), "w") as fh:
+            with open(os.path.join(self.run_dir, "published.json"), "w",
+                      encoding="utf-8") as fh:
                 json.dump(result, fh, indent=2)
             self.say("  written to published.json")
 
@@ -592,7 +708,7 @@ class App(ttk.Frame):
 
     def open_room_link(self):
         """Open the room-creation link in the default browser."""
-        if not getattr(self, "published", None):
+        if not self.published:
             return
         url = self.published["new_room_url"]
         if messagebox.askokcancel(
@@ -623,8 +739,8 @@ class App(ttk.Frame):
 def main():
     root = tk.Tk()
     root.title("Archipelago Lobby Generator")
-    root.geometry("980x760")
-    root.minsize(760, 560)
+    root.geometry("1040x780")
+    root.minsize(820, 580)
     try:
         ttk.Style().theme_use("vista")
     except tk.TclError:
