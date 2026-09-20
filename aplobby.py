@@ -42,10 +42,15 @@ sha256 = lambda b: hashlib.sha256(b).hexdigest()
 # ---------------------------------------------------------------- lobby
 
 def room_id(value: str) -> str:
-    """Accept a full room URL or a bare id."""
+    """Accept a full room URL or a bare id.
+
+    Raises ValueError, not SystemExit: this is called from a dialog as well as
+    from the command line, and a library function should not decide to end the
+    process.
+    """
     m = re.search(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", value)
     if not m:
-        raise SystemExit(f"could not find a room id in {value!r}")
+        raise ValueError(f"could not find a room id in {value!r}")
     return m.group(1)
 
 
