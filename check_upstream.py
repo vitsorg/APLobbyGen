@@ -89,7 +89,10 @@ def read_world(path: str):
     repos, seen = [], set()
     for owner, repo in re.findall(r"github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)",
                                   "\n".join(blob)):
-        repo = repo.rstrip(".git")
+        # rstrip takes a character SET, not a suffix: "AP-Kit".rstrip(".git")
+        # is "AP-K". Strip the real suffix instead.
+        if repo.endswith(".git"):
+            repo = repo[: -len(".git")]
         key = f"{owner}/{repo}".lower()
         if key in SKIP_REPOS or key in seen:
             continue

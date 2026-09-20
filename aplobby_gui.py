@@ -37,6 +37,7 @@ class App(ttk.Frame):
         self.msgs: queue.Queue = queue.Queue()
         self.roster: list = []
         self.index: dict = {}
+        self.room: str | None = None
         self.run_dir: str | None = None
         self.seed_zip: str | None = None
         self.published: dict | None = None
@@ -406,6 +407,11 @@ class App(ttk.Frame):
         no_upstream = reg.get("no_upstream", {})
 
         worlds = {r["world"] for r in self.roster if r.get("world")}
+        if not worlds:
+            self.say("\nupstream check - no roster world resolved to an installed "
+                     "file, so there is nothing to check")
+            self.msgs.put(("status", "Nothing to check against GitHub."))
+            return
         self.msgs.put(("status", f"Checking {len(worlds)} world(s) against GitHub..."))
         self.say(f"\nupstream check - {len(worlds)} world(s) in this room")
         behind = 0
@@ -510,11 +516,15 @@ class App(ttk.Frame):
         for w in warn:
             self.say("  warn " + w[:150])
 
-        used = {r["game"]: self.index[r["game"]] for r in self.roster if r.get("world")}
+        # Filter on the lookup itself. Using .get() here would put a None into
+        # the dict and the comprehension below would call .items() on it.
+        used = {r["game"]: self.index[r["game"]] for r in self.roster
+                if r.get("world") and r["game"] in self.index}
         lock = {
             "schema": "aplobby-run/1",
             "generated": datetime.datetime.now().isoformat(timespec="seconds"),
             "lobby_room": self.room,
+            "archipelago_version": core.ap_version(self.ap_var.get()),
             "seed_zip": os.path.basename(self.seed_zip),
             "seed_sha256": core.sha256(open(self.seed_zip, "rb").read()),
             "players": [{k: v for k, v in r.items() if k != "must_match"} for r in self.roster],

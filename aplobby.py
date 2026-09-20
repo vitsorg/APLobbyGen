@@ -161,6 +161,19 @@ def world_game(data: bytes):
     return None, client
 
 
+def ap_version(ap_dir: str):
+    """The installed Archipelago version, or None if it cannot be read.
+
+    Shared by both lock writers so they cannot disagree about it, which they
+    did: the CLI recorded it and the GUI silently omitted it.
+    """
+    try:
+        blob = json.load(open(os.path.join(ap_dir, "manifest.json"), encoding="utf-8"))
+        return ".".join(map(str, blob["version"]))
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def index_worlds(ap_dir: str):
     """{game name: {...}} across custom_worlds and the bundled worlds."""
     index = {}
@@ -259,7 +272,10 @@ def main() -> int:
             missing.append(e)
             e["world"] = None
 
-    for e in sorted(entries, key=lambda x: x["game"]):
+    # A config with no 'game:' line sorts as None and raises TypeError against
+    # a str - which happened right after the friendly warning about that exact
+    # case, so the run died before it could tell you.
+    for e in sorted(entries, key=lambda x: (x["game"] is None, x["game"] or "")):
         hit = index.get(e["game"])
         if hit:
             mark = "*" if hit["ships_client_code"] else " "
@@ -325,8 +341,7 @@ def main() -> int:
         "schema": "aplobby-run/1",
         "generated": datetime.datetime.now().isoformat(timespec="seconds"),
         "lobby_room": room,
-        "archipelago_version": ".".join(map(str, json.load(
-            open(os.path.join(args.ap, "manifest.json")))["version"])),
+        "archipelago_version": ap_version(args.ap),
         "seed_zip": os.path.basename(seed_zip),
         "seed_sha256": sha256(open(seed_zip, "rb").read()),
         "spoiler": os.path.basename(spoiler_path) if spoiler_path else None,
