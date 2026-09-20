@@ -1,0 +1,62 @@
+{
+  "_comment": "What we know about each installed world beyond its own manifest. 'repos' names an upstream that publishes the world file itself - still only accepted if it actually ships an asset matching the world's filename, so a wrong entry is ignored rather than trusted. 'anchors' records a version the world states about something other than itself: the engine it bundles or pins. An anchor is a comparable identifier, NOT the world's own version - two different builds can share one - so the hash in the lock remains the only exact identity. 'no_upstream' records a world confirmed to publish no world file on GitHub, so it reports as checked rather than unexamined.",
+
+  "repos": {
+    "spire2": "dlueben1/Slay-the-Spire-2-Archipelago",
+    "residentevil2remake": "FuzzyGamesOn/RE2R_AP_World",
+    "re3remake": "TheRealSolidusSnake/RE3R_AP_World",
+    "look_outside": "Turese/LOArchipelagoPlugins",
+    "mmx6": "Shinnuu/Archipelago",
+    "tboir": "NaveTK/Archipelago",
+    "pseudoregalia": "pseudoregalia-modding/pseudoregalia-archipelago",
+    "outer_wilds": "Ixrec/OuterWildsArchipelagoRandomizer",
+    "everhood_2": "DeamonHunter/ArchipelagoEverhood2",
+    "oribf": "c-ostic/OriBFArchipelago"
+  },
+
+  "anchors": {
+    "ff6wc": {
+      "kind": "game version",
+      "name": "Worlds Collide",
+      "version": "1.4.2",
+      "evidence": "ff6wc/WorldsCollide/version.py __version__, echoed in __init__.py, Options.py and the docs",
+      "note": "FF6WC IS Worlds Collide wrapped for Archipelago, not a world that depends on it - the randomizer ships inside at ff6wc/WorldsCollide/. So 1.4.2 is the working version of the game that player is playing, and the closest thing this world has to a version of its own. The apworld still declares none, so the hash remains exact identity."
+    },
+    "sm_map_rando": {
+      "kind": "pinned engine",
+      "name": "Map Randomizer (pysmmaprando)",
+      "version": "v0.119.2-beta.3",
+      "repo": "snowflav-goob/MapRandomizer",
+      "evidence": "sm_map_rando/requirements.txt wheel URL",
+      "note": "that repo publishes the engine wheels, not the world file; the pin is its newest release"
+    },
+    "look_outside": {
+      "kind": "release provenance",
+      "name": "LOArchipelagoPlugins",
+      "version": "1.2.2",
+      "repo": "Turese/LOArchipelagoPlugins",
+      "evidence": "downloaded from that release; manifest carries no world_version",
+      "note": "version known by where it came from, not by self-declaration"
+    },
+    "oribf": {
+      "kind": "release provenance",
+      "name": "Ori and the Blind Forest world",
+      "version": "0.4.2",
+      "evidence": "the lobby served it under this version; manifest carries no world_version"
+    },
+    "dkc": {
+      "kind": "release provenance",
+      "name": "Donkey Kong Country world",
+      "version": "1.2.3",
+      "evidence": "self-declared 1.2.3; the lobby labels its own repack 1.2.3+hotfix1, differing only in Client.py"
+    }
+  },
+
+  "no_upstream": {
+    "dkc": "distributed via Discord; the lobby serves a 1.2.3+hotfix1 repack",
+    "k64": "distributed via Discord",
+    "peggle_deluxe": "distributed via Discord",
+    "sm_map_rando": "no world file published on GitHub; its engine is, see anchors",
+    "ff6wc": "supplied by the player running it; no public release found"
+  }
+}

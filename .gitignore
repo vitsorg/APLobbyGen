@@ -1,0 +1,18 @@
+# generated per-run output
+runs/
+*.log
+
+# the local lobby: player configs and a manifest carrying every player's name
+lobby/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# never commit player configs or seeds
+*.yaml
+*.apworld
+*.archipelago
+AP_*.zip
