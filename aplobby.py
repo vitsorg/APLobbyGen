@@ -53,14 +53,17 @@ def fetch(url: str, timeout: int = 30) -> bytes:
     return urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=timeout).read()
 
 
-def scrape_roster(room: str):
-    """[(player, game, yaml_id)] from the room page.
+def parse_roster(page: str):
+    """[(player, game, yaml_id)] from a room page's HTML.
+
+    Split from the fetch so it can be exercised against a saved page with no
+    network - every test below this line runs offline.
 
     The yaml id is a data attribute on each <tr>, which survives markup churn
-    better than the anchor href. Raises when nothing parses, so a layout change
-    can never look like an empty room.
+    better than the anchor href. Raises when nothing parses: an empty room and
+    a changed layout look identical from here, and silently returning [] would
+    let a markup change generate a seed with nobody in it.
     """
-    page = fetch(f"{LOBBY}/room/{room}").decode("utf-8", "replace")
     rows = []
     for tag, body in re.findall("<tr([^>]*)>(.*?)</tr>", page, re.S):
         yid = re.search('data-yaml-id="([0-9a-f-]{36})"', tag)
@@ -74,8 +77,14 @@ def scrape_roster(room: str):
         rows.append((clean(name.group(1)) if name else clean(cells[0]),
                      clean(cells[1]), yid.group(1)))
     if not rows:
-        raise RuntimeError("parsed 0 rows from the room page - markup likely changed")
+        raise RuntimeError("parsed 0 player rows from the room page - the room is "
+                           "empty, or its markup changed")
     return rows
+
+
+def scrape_roster(room: str):
+    """Fetch a room page and parse its roster."""
+    return parse_roster(fetch(f"{LOBBY}/room/{room}").decode("utf-8", "replace"))
 
 
 def safe_name(player: str, game: str) -> str:

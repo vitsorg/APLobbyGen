@@ -1,0 +1,287 @@
+<!DOCTYPE html >
+<html lang="en">
+    <head>
+        <title>Archipelago lobby</title>
+        <link rel="stylesheet" href="/static/css/base.css?9bd6874a546afd32e74b5fe151deb3cb46a23e078ac8d457320a1e22cacf8064">
+        <link rel="stylesheet" href="/static/contrib/font-awesome/css/all.min.css">
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link rel="icon" type="image/svg" href="/static/images/favicon.svg"><link rel="stylesheet" href="/static/contrib/highlight.js/monokai.min.css"></head>
+    <body>
+        <nav id="navigation"><a href="/" id="index"><i class="fa-brands fa-buffer"></i> <span>Index</span></a><a href="/room/abcdef01-2345-6789-abcd-ef0123456789" class="selected" id="room"><i class="menu-indented fa-classic fa-angle-right"></i> <span>CORE</span><span class="arrow"></span></a><a href="/worlds" id="apworlds"><i class="fa fa-globe"></i> <span>Apworlds</span></a><span class="separator"></span><a href="/options" id="options"><i class="fa fa-file-lines"></i> <span>Create/Edit YAML</span></a><a href="/auth/login" id="login"><i class="fa fa-sign-in"></i> <span>Login</span></a><a class="source-code" href="https://github.com/ionium-ap/Archipelago-lobby" id="github"><span><i class="fa-brands fa-github"></i></span></a>
+        </nav>
+
+        <div id="main-container">
+            <main id="main" >
+                <nav id="module-menu"><a href="/room/abcdef01-2345-6789-abcd-ef0123456789" class="selected" id="room-menu"><i class=""></i> <span>Room</span></a><a href="/auth/login?redirect=/room/abcdef01-2345-6789-abcd-ef0123456789" id=""><i class=""></i> <span>Upload yaml</span></a><a href="/room/abcdef01-2345-6789-abcd-ef0123456789/worlds" id="apworldsButton"><i class=""></i> <span>Apworlds</span></a></nav>
+                <div id="messages"></div><noscript>
+    Gotta enable javascript for this to work, sorry
+</noscript><table class="styled" id="room-info">
+    <tr>
+        <td>Room name</td>
+        <td><span title="Organized by @classicog">CORE</span></td>
+    </tr>
+    <tr>
+        <td>Closing time</td>
+        <td id="close-date" class="time long-time discord">2026-09-26 20:00:00</td>
+    </tr><tr>
+        <td>Players</td>
+        <td><span title="0 unique players / 0 unique games">0</span></td>
+    </tr><tr>
+        <td colspan=2 id="room-description"><p>lets goo</p>
+</td>
+    </tr></table>
+
+<div id="filter-popup" style="display: none">
+    <form action="javascript:void(0);">
+        <input type="text" name="search" placeholder="Search" autocomplete="off"/>
+        <input type="checkbox" id="my-yamls"><label for="my-yamls">My files only</label><br><button onclick='document.getElementById("filter-popup").style.display = "none";'>Close</button>
+    </form>
+</div>
+
+<table class="styled yamls" id="yamls">
+    <thead>
+        <tr>
+
+            <th data-sort-key="player-name"></span><i id="filter-trigger" class="fa fa-filter"></i> Player </th>
+            <th data-sort-key="game-name">Game</th>
+            <th>Action</th>
+        </tr>
+    </thead>
+    <tbody></tbody>
+    <tfoot></tfoot>
+</table>
+
+<form style="display: none" action="/room/abcdef01-2345-6789-abcd-ef0123456789/upload" method="POST" enctype="multipart/form-data">
+    <input type="file" name="yamls[]" id="yamlUpload" accept=".yml,.yaml" multiple>
+    <button id="yamlFormButton">Upload</button>
+</form></main>
+        </div>
+        <script src="/static/js/time.js?6979510ffc0d9cc4fcebef78633524a41197d729741f5304906f25c2d93fa61f" defer></script><script src="/static/contrib/highlight.js/highlight.min.js" defer></script>
+<script src="/static/contrib/highlight.js/yaml.min.js" defer></script>
+<script src="/static/js/viewer.js?6979510ffc0d9cc4fcebef78633524a41197d729741f5304906f25c2d93fa61f" defer></script>
+<script src="/static/js/menu.js?6979510ffc0d9cc4fcebef78633524a41197d729741f5304906f25c2d93fa61f"></script>
+<script src="/static/js/room.js?6979510ffc0d9cc4fcebef78633524a41197d729741f5304906f25c2d93fa61f" defer></script>
+<script src="/static/js/simplesearch.js?6979510ffc0d9cc4fcebef78633524a41197d729741f5304906f25c2d93fa61f"></script>
+
+<script>
+    function showRowYaml(elmt) {
+        const expandValidation = elmt.classList.contains("validation-result")
+        const yamlId = elmt.closest("tr").dataset.yamlId
+        return showYaml("abcdef01-2345-6789-abcd-ef0123456789", yamlId, expandValidation)
+    }
+
+    const yamlUpload = document.getElementById("yamlUpload");
+    const yamlUploadButton = document.getElementById("uploadButton");
+    const yamlFormButton = document.getElementById("yamlFormButton");
+
+    if (yamlUploadButton) {
+        yamlUploadButton.onclick = function() {
+            yamlUpload.click();
+        }
+    }
+
+    yamlUpload.onchange = function() {
+        yamlFormButton.click();
+    }
+
+    // Search popup
+    document.getElementById("filter-trigger").onclick = function(event) {
+        event.stopPropagation();
+        const popup = document.getElementById("filter-popup");
+
+        if (popup.style.display === "block") {
+            popup.style.display = "none"
+            return
+        }
+
+        const anchor_bb = event.target.getBoundingClientRect();
+        const element_bb = popup.getBoundingClientRect();
+
+        if (anchor_bb.left + element_bb.width > window.innerWidth) {
+            popup.style.left = window.innerWidth - element_bb.width + "px"
+        } else {
+            popup.style.left = anchor_bb.left + "px"
+        }
+
+        popup.style.top = (anchor_bb.bottom + window.scrollY) + "px"
+        popup.style["min-width"] = anchor_bb.width + "px"
+        popup.style.display = "block"
+        popup.style.position = "absolute"
+    }
+
+    // Search field
+    const search = new SimpleSearch('search', '.yamls tbody > tr', '.player-name');
+
+    // Boolean filters
+    function addFilters(filters) {
+        function refreshFilters() {
+            const yamlTable = document.getElementById("yamls").getElementsByTagName("tbody")[0];
+            for(let row of yamlTable.getElementsByTagName("tr")) {
+                var hidden = false;
+                for (const [filterId, filter] of Object.entries(filters)) {
+                    const filterYamls = document.getElementById(filterId);
+                    if (!filterYamls) continue;
+                    hidden |= (filterYamls.checked && filter(row))
+                }
+
+                row.setAttribute("data-hidden", !!hidden)
+            }
+        }
+
+        for (const [filterId, filter] of Object.entries(filters)) {
+            const filterYamls = document.getElementById(filterId);
+            if (!filterYamls) continue;
+            filterYamls.checked = false;
+            filterYamls.onchange = function() {
+                refreshFilters()
+                search.update()
+            }
+        }
+    }
+
+    addFilters({"my-yamls": (row) => row.dataset.myYaml !== "true", "broken-yamls": (row) => row.dataset.validYaml != "false"})
+
+    // Always show discord names
+    const keepDiscordNames = document.getElementById("keep-discord-names")
+    if (keepDiscordNames !== null) {
+        keepDiscordNames.checked = false;
+        keepDiscordNames.onchange = function() {
+            document.getElementById("yamls").classList.toggle("show-discord-names", keepDiscordNames.checked)
+        }
+    }
+
+    // Table sorting
+    function sortBy(key, elmt) {
+        function getValueToSortWith(row, key) {
+            switch (key) {
+                case "bundle-id":
+                    return row.dataset.bundleId
+                case "game-name":
+                    return row.children[1].innerText.toLowerCase()
+                case "discord-name":
+                    return row.children[0].getElementsByClassName("player-name")[0].title.toLowerCase()
+                case "validation-status":
+                    break
+                case "player-name":
+                    return row.children[0].getElementsByClassName("player-name")[0].innerText.toLowerCase()
+                default:
+                    console.log("Unknown sort-by key: ", key)
+                    return 0
+            }
+        }
+
+        const currentDirection = (elmt && elmt.dataset.sortDir) || 'asc'
+        const direction = currentDirection === 'asc' ? 'desc' : 'asc'
+        if (elmt) {
+            elmt.setAttribute('data-sort-dir', direction)
+        }
+        const table = document.getElementById('yamls');
+        const compare = (a, b) => {
+            if (direction === 'asc') {
+                return getValueToSortWith(a, key) > getValueToSortWith(b, key) ? 1 : -1
+            } else {
+                return getValueToSortWith(a, key) < getValueToSortWith(b, key) ? 1 : -1
+            }
+        }
+        const tbody = table.querySelector('tbody');
+        Array.from(tbody.querySelectorAll('tr'))
+            .sort(compare)
+            .forEach(tr => tbody.appendChild(tr));
+
+        if (key == "bundle-id") {
+            setBundleSeparator(true)
+        } else {
+            setBundleSeparator(false)
+        }
+
+        const sortIndicator = document.createElement("i")
+        sortIndicator.classList.add(...["fa", "sort-indicator", direction === "asc" ? "fa-sort-up" : "fa-sort-down"])
+        if (elmt) {
+            elmt.insertBefore(sortIndicator, elmt.children[1])
+        }
+    }
+
+    function removeAllSortableIndicators(elmt) {
+        const sortableIndicators = elmt.querySelectorAll(".sort-indicator")
+        for (const elmt of sortableIndicators) {
+            elmt.parentElement.removeChild(elmt)
+        }
+    }
+
+    function connectSortableElements(table) {
+        const thead = table.querySelector("thead")
+        const elements = thead.querySelectorAll("*")
+        for (const elmt of elements) {
+            const sortKey = elmt.dataset.sortKey
+            if (!sortKey) continue
+
+            elmt.onclick = (event) => {
+                removeAllSortableIndicators(thead)
+                sortBy(sortKey, elmt)
+                event.stopPropagation()
+            }
+        }
+    }
+
+    function setBundleSeparator(shouldShow) {
+        const table = document.getElementById('yamls');
+        const tbody = table.querySelector('tbody');
+        const rows = tbody.querySelectorAll('tr')
+
+        if (shouldShow) {
+            var currentBundleId = ""
+            for (const row of rows) {
+                const rowBundleId = row.dataset.bundleId;
+                row.classList.remove("bundle-separator")
+
+                if (currentBundleId != "" && currentBundleId != rowBundleId) {
+                    row.classList.add("bundle-separator");
+                }
+
+                currentBundleId = rowBundleId;
+            }
+        } else {
+            for (const row of rows) {
+                row.classList.remove("bundle-separator")
+            }
+        }
+    }
+
+    connectSortableElements(document.getElementById("yamls"))
+
+    function triggerBundle(elmt, event) {
+        event.stopPropagation()
+        const thead = document.getElementById("yamls").getElementsByTagName("thead")[0];
+        removeAllSortableIndicators(thead)
+
+        if (elmt.classList.contains("disabled")) {
+            elmt.classList.remove("disabled")
+            sortBy("bundle-id")
+        } else {
+            elmt.classList.add("disabled")
+            sortBy("player-name")
+        }
+    }
+
+    function getYamlsForBundle(bundleId) {
+        const table = document.getElementById('yamls');
+        const tbody = table.querySelector('tbody');
+        const rows = tbody.querySelectorAll('tr')
+        var yamls = []
+        for (const row of rows) {
+            if (row.dataset.bundleId == bundleId) {
+                yamls.push(row)
+            }
+        }
+
+        return "<br><br>The room forces YAMLs to be kept as bundles. Deleting this will delete:<br><ul style=\"text-align: left\">" + yamls.map((row) => {
+            return "<li>" + row.lastElementChild.lastElementChild.firstElementChild.dataset.resourceName
+             .replace(/&/g, "&amp;")
+             .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;") + "</li>"
+        }).join("") + "</ul>"
+    }
+</script></body>
+</html>
+
