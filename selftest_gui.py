@@ -129,6 +129,28 @@ def main() -> int:
             assert "import" in app.gen_reason.get()
             ok(f"empty lobby: Generate off, reason {app.gen_reason.get()!r}")
 
+            # -- both themes reach the widgets ------------------------------
+            import theme as theme_mod
+            theme_mod.PREF_FILE = os.path.join(tmp, "ui.json")
+            app.lobby_root = lobby_root
+            app.reload()
+            pump(root, app)
+            seen = {}
+            for mode in ("dark", "light"):
+                app.set_theme(mode)
+                root.update()
+                pal = theme_mod.PALETTES[mode]
+                assert app.log["background"] == pal["field"], app.log["background"]
+                assert str(app.tree.tag_configure("missing", "foreground")) == pal["missing"]
+                assert str(root["background"]) == pal["bg"]
+                seen[mode] = pal["bg"]
+            assert seen["dark"] != seen["light"], "both themes painted the same"
+            ok("dark and light both reach the log, the table tags and the window")
+            assert theme_mod.load_pref() == "light", "the choice was not saved"
+            ok("the chosen theme is written to ui.json, so it survives a restart")
+            assert theme_mod.resolve("auto") in ("light", "dark")
+            ok(f"auto resolves to the Windows setting: {theme_mod.resolve('auto')}")
+
             # -- a bad Archipelago path degrades, not explodes --------------
             app.lobby_root = lobby_root
             app.ap_var.set(os.path.join(tmp, "no-such-install"))

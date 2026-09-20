@@ -16,3 +16,4 @@ venv/
 *.apworld
 *.archipelago
 AP_*.zip
+ui.json

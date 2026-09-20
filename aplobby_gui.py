@@ -21,6 +21,7 @@ from tkinter import ttk, filedialog, messagebox, simpledialog
 import aplobby as core
 import lobby
 import sources
+import theme
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -46,6 +47,11 @@ class App(ttk.Frame):
         self.spoiler_path: str | None = None
         self.busy = False
         self.lobby_root = os.path.join(HERE, "lobby")
+
+        # Paint before building: ttk styles are global, so widgets created
+        # afterwards are born with the right colours and never flash white.
+        self.theme_mode = theme.load_pref()
+        self.palette = theme.apply(master.winfo_toplevel(), self.theme_mode)
 
         self._build_lobby_bar()
         self._build_actions()
@@ -102,7 +108,7 @@ class App(ttk.Frame):
         self.gen_btn.pack(side="left")
 
         self.gen_reason = tk.StringVar(value="")
-        ttk.Label(bar, textvariable=self.gen_reason, foreground="#6b6b6b").pack(
+        ttk.Label(bar, textvariable=self.gen_reason, style="Muted.TLabel").pack(
             side="left", padx=8)
 
         self.upstream_btn = ttk.Button(bar, text="Check upstream",
@@ -155,9 +161,7 @@ class App(ttk.Frame):
         sb.grid(row=0, column=1, sticky="ns")
         self.tree.configure(yscrollcommand=sb.set)
 
-        self.tree.tag_configure("missing", foreground="#b3261e")
-        self.tree.tag_configure("match", foreground="#7a5200")
-        self.tree.tag_configure("out", foreground="#9a9a9a")
+        self._paint_tags()
 
         row = ttk.Frame(box)
         row.grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
@@ -166,7 +170,7 @@ class App(ttk.Frame):
             side="left", padx=6)
         ttk.Button(row, text="Remove from lobby", command=self.remove_selected).pack(side="left")
         ttk.Label(row, text="   double-click a row to include or exclude it",
-                  foreground="#6b6b6b").pack(side="left")
+                  style="Muted.TLabel").pack(side="left")
 
     def _build_log(self):
         box = ttk.LabelFrame(self, text="Log", padding=6)
@@ -174,18 +178,67 @@ class App(ttk.Frame):
         box.columnconfigure(0, weight=1)
         box.rowconfigure(0, weight=1)
 
-        self.log = tk.Text(box, height=9, wrap="none", font=("Consolas", 9))
+        self.log = tk.Text(box, height=9, wrap="none", font=("Consolas", 9),
+                           relief="flat", borderwidth=0, highlightthickness=0)
         self.log.grid(row=0, column=0, sticky="nsew")
         sb = ttk.Scrollbar(box, orient="vertical", command=self.log.yview)
         sb.grid(row=0, column=1, sticky="ns")
         self.log.configure(yscrollcommand=sb.set, state="disabled")
+        self._paint_log()
 
     def _build_status(self):
+        row = ttk.Frame(self)
+        row.grid(row=6, column=0, sticky="ew", pady=(8, 0))
+        row.columnconfigure(0, weight=1)
+
         self.status = tk.StringVar(value="Opening the lobby...")
-        ttk.Label(self, textvariable=self.status, anchor="w").grid(
-            row=6, column=0, sticky="ew", pady=(8, 0))
+        ttk.Label(row, textvariable=self.status, anchor="w").grid(
+            row=0, column=0, sticky="ew")
+
+        self.theme_label = tk.StringVar(value=self._theme_label())
+        btn = ttk.Menubutton(row, textvariable=self.theme_label, width=14)
+        menu = tk.Menu(btn, tearoff=0)
+        self.theme_var = tk.StringVar(value=self.theme_mode)
+        for mode, label in (("auto", "Auto (follow Windows)"),
+                            ("light", "Light"), ("dark", "Dark")):
+            menu.add_radiobutton(label=label, value=mode, variable=self.theme_var,
+                                 command=lambda m=mode: self.set_theme(m))
+        btn["menu"] = menu
+        btn.grid(row=0, column=1, sticky="e", padx=(8, 0))
+        self.theme_menu = menu
+
         self.bar = ttk.Progressbar(self, mode="determinate")
         self.bar.grid(row=7, column=0, sticky="ew", pady=(4, 0))
+
+    # ---------------------------------------------------------- appearance
+
+    def _theme_label(self) -> str:
+        if self.theme_mode == "auto":
+            return f"Theme: auto ({theme.resolve('auto')})"
+        return f"Theme: {self.theme_mode}"
+
+    def _paint_tags(self):
+        """Row colours live in the palette: the same red goes muddy on dark."""
+        for tag in ("missing", "match", "out"):
+            self.tree.tag_configure(tag, foreground=self.palette[tag])
+
+    def _paint_log(self):
+        self.log.configure(background=self.palette["field"],
+                           foreground=self.palette["fg"],
+                           insertbackground=self.palette["fg"],
+                           selectbackground=self.palette["sel_bg"],
+                           selectforeground=self.palette["sel_fg"])
+
+    def set_theme(self, mode: str):
+        """Repaint live. ttk styles are global, so every widget follows along;
+        the plain-tk ones - the log and the table tags - need repainting here."""
+        self.theme_mode = mode
+        self.palette = theme.apply(self.winfo_toplevel(), mode)
+        self._paint_tags()
+        self._paint_log()
+        self.theme_var.set(mode)
+        self.theme_label.set(self._theme_label())
+        theme.save_pref(mode)
 
     # ---------------------------------------------------------- plumbing
 
@@ -741,11 +794,7 @@ def main():
     root.title("Archipelago Lobby Generator")
     root.geometry("1040x780")
     root.minsize(820, 580)
-    try:
-        ttk.Style().theme_use("vista")
-    except tk.TclError:
-        pass
-    App(root)
+    App(root)          # App.__init__ applies the saved theme to root
     root.mainloop()
 
 
