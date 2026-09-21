@@ -93,7 +93,7 @@ save file.
 
 ## Tests
 
-Four suites, all offline except the one that deliberately hosts on loopback:
+Five suites, all offline except the one that deliberately hosts on loopback:
 
 ```
 python selftest_lobby.py     the store: identity, history, crash recovery
