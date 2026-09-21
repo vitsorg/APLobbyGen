@@ -1,0 +1,78 @@
+APLobbyGen License
+Copyright (c) 2026 vitsorg. All rights reserved.
+
+This is a source-available licence, not an open-source one. You may read, run
+and share this software as published; you may not publish your own modified
+version of it. Changes are welcome, but they come back here as pull requests
+so that one maintained copy stays authoritative.
+
+1. DEFINITIONS
+
+   "the Software" is this program and its source, as published at the upstream
+   repository. "the Upstream Repository" is https://github.com/vitsorg/APLobbyGen.
+   "you" is any person or organisation exercising these permissions.
+
+2. PERMITTED USE
+
+   You may use and run the Software, without charge, to prepare, generate,
+   host, administer and test Archipelago multiworlds - for yourself, for a
+   group you play with, or for a community you run, whether or not money
+   changes hands in that community.
+
+   You may make and keep copies of the Software for that purpose, and you may
+   pass on unmodified copies, provided this licence and the copyright notice
+   travel with them.
+
+3. MODIFICATION AND CONTRIBUTION
+
+   You may modify your own copy for the purpose of preparing a contribution to
+   the Upstream Repository, and for evaluating a change locally before
+   proposing it. Forking the Upstream Repository on a hosting service, and
+   pushing your changes to that fork, is permitted as the ordinary mechanism
+   for opening a pull request.
+
+   You may not distribute, publish, host or otherwise make available to others
+   a modified version of the Software, or a work derived from it, except as a
+   pull request or patch submitted to the Upstream Repository. A public fork
+   that exists to carry a proposed change is within this permission; a public
+   fork maintained as a competing or diverging version is not.
+
+   If a change matters to you and is not accepted upstream, ask - a narrower
+   permission can be granted in writing. The intent of this clause is to keep
+   one copy authoritative and correct, not to stop anyone from getting work
+   done.
+
+4. CONTRIBUTIONS
+
+   By submitting a contribution to the Upstream Repository, you licence that
+   contribution to the copyright holder under these same terms, and confirm
+   you have the right to do so. You keep the copyright in what you wrote.
+
+5. WHAT IS NOT LICENSED HERE
+
+   This licence covers the Software only. Archipelago, the world files
+   (.apworld) it indexes, the clients it links to and the games they patch are
+   other people's work under their own licences and are not granted by this
+   document. The Software is not affiliated with or endorsed by the
+   Archipelago project.
+
+6. RESERVATION
+
+   All rights not expressly granted above are reserved. Nothing here grants a
+   trademark right, or the right to use the copyright holder's name to promote
+   anything.
+
+7. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+   WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF
+   OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+   SOFTWARE.
+
+8. TERMINATION
+
+   If you breach this licence, the permissions in it end for you. They are
+   restored if you stop the breach within 30 days of being told about it.
