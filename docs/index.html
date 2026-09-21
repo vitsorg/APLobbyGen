@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>APLobbyGen</title>
+<meta name="description" content="A local-first Archipelago multiworld generator and local server host for Windows. Standard library only.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#127760;</text></svg>">
+<style>
+  :root {
+    --bg: #ffffff; --surface: #f6f7f9; --line: #d8dbe0;
+    --fg: #16181d; --muted: #5b6069; --accent: #2f6fd0;
+    --code-bg: #f2f3f5; --ready: #2e7d4f; --warn: #8a5a00; --miss: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181b; --surface: #1e2125; --line: #31353b;
+      --fg: #e6e8ec; --muted: #9aa0a6; --accent: #6aa6f0;
+      --code-bg: #101215; --ready: #7bd1a0; --warn: #e6b455; --miss: #ff8a80;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.65 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 16px; }
+  header { padding: 72px 0 36px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 2.6rem; margin: 0 0 .3em; letter-spacing: -.02em; }
+  .tagline { font-size: 1.22rem; color: var(--muted); margin: 0 0 1.6em; max-width: 60ch; }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; }
+  .btn {
+    display: inline-block; padding: 10px 18px; border-radius: 7px;
+    border: 1px solid var(--line); text-decoration: none; color: var(--fg);
+    background: var(--surface); font-weight: 600; font-size: .95rem;
+  }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn:hover { border-color: var(--accent); }
+  h2 { font-size: 1.45rem; margin: 2.4em 0 .6em; letter-spacing: -.01em; }
+  h3 { font-size: 1.05rem; margin: 1.8em 0 .4em; }
+  p, li { color: var(--fg); }
+  .muted { color: var(--muted); }
+  figure { margin: 32px 0 8px; }
+  figure img {
+    width: 100%; height: auto; display: block;
+    border: 1px solid var(--line); border-radius: 10px;
+  }
+  figcaption { color: var(--muted); font-size: .88rem; margin-top: 10px; }
+  .shot-dark { display: none; }
+  @media (prefers-color-scheme: dark) {
+    .shot-dark { display: block; } .shot-light { display: none; }
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto; font-size: .89rem; line-height: 1.5;
+  }
+  code { font-family: ui-monospace, Consolas, "SF Mono", Menlo, monospace; }
+  p code, li code {
+    background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-size: .9em;
+  }
+  ul.feat { list-style: none; padding: 0; }
+  ul.feat li { padding: 14px 0; border-bottom: 1px solid var(--line); }
+  ul.feat li:last-child { border-bottom: 0; }
+  ul.feat b { display: block; margin-bottom: 2px; }
+  .swatch { font-weight: 600; }
+  .s-ready { color: var(--ready); } .s-warn { color: var(--warn); } .s-miss { color: var(--miss); }
+  .note {
+    border-left: 3px solid var(--accent); background: var(--surface);
+    padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 20px 0;
+  }
+  footer {
+    margin-top: 56px; padding: 28px 0 60px; border-top: 1px solid var(--line);
+    color: var(--muted); font-size: .9rem;
+  }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>APLobbyGen</h1>
+  <p class="tagline">
+    A local-first front end for running Archipelago multiworlds on Windows.
+    The roster lives on your machine, generation never touches the network, and
+    the seed can be hosted right here.
+  </p>
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/vitsorg/APLobbyGen">View on GitHub</a>
+    <a class="btn" href="https://github.com/vitsorg/APLobbyGen/archive/refs/heads/main.zip">Download</a>
+    <a class="btn" href="https://github.com/vitsorg/APLobbyGen/blob/main/LICENSE">Licence</a>
+  </div>
+</header>
+
+<figure>
+  <img class="shot-light" src="screenshot-light.png"
+       alt="The APLobbyGen window: a lobby of eleven players, each row showing the game, the world file that resolves it, its version and its status.">
+  <img class="shot-dark" src="screenshot-dark.png"
+       alt="The APLobbyGen window in dark mode: a lobby of eleven players, each row showing the game, the world file that resolves it, its version and its status.">
+  <figcaption>
+    Every player resolved against the world files actually installed.
+    <span class="swatch s-ready">ready</span>,
+    <span class="swatch s-warn">world must match</span> (the apworld ships a client,
+    so every player needs the identical file),
+    <span class="muted">sitting out</span>, and
+    <span class="swatch s-miss">no world installed</span> &mdash; which is why Generate
+    is off, and it says so rather than just greying out.
+    Players shown are invented.
+  </figcaption>
+</figure>
+
+<h2>Why it exists</h2>
+<p>
+  Most tooling around a multiworld treats a remote lobby as the source of truth.
+  Every generation re-scrapes someone else's server, the roster evaporates
+  between runs, and nothing works offline. Here the <b>local lobby owns the
+  roster</b>; a remote room is one way to put configs into it, not the thing
+  that defines it.
+</p>
+<p class="muted">
+  Standard library only &mdash; no pip install, no virtualenv. If you have Python
+  and an Archipelago install, you have everything.
+</p>
+
+<h2>What it does</h2>
+<ul class="feat">
+  <li>
+    <b>A roster that survives</b>
+    Configs live in a local lobby with a manifest, retained history for
+    superseded versions, and per-player include / sit-out. Re-importing an
+    unchanged config is a no-op; a changed one updates in place and keeps the
+    previous version.
+  </li>
+  <li>
+    <b>Import from anywhere</b>
+    A lobby room, a folder, a zip, or individual <code>.yaml</code> files. The
+    remote room is one importer among several rather than the foundation.
+  </li>
+  <li>
+    <b>Preflight that tells you the truth</b>
+    Every player's game is resolved against the <code>.apworld</code> files
+    actually installed, so a missing world is something you learn before
+    generating, not after.
+  </li>
+  <li>
+    <b>Dropped settings are a failure, not a footnote</b>
+    When a config asks for an option the installed world does not have,
+    Archipelago drops it silently and produces a seed that looks fine while a
+    player quietly does not get the game they configured. That exits non-zero
+    here unless you waive it.
+  </li>
+  <li>
+    <b>A lock beside every seed</b>
+    Each run records what it was built from &mdash; world files, hashes,
+    versions, sources &mdash; so a seed stays explicable months later.
+  </li>
+  <li>
+    <b>Where to get things</b>
+    Two upstreams matter per game and they are different questions: the
+    <code>.apworld</code> the generator needs, and the client or mod the player
+    installs to actually play. Both are tracked as links, with the evidence each
+    claim was read from, and the games in your lobby are checked first.
+  </li>
+  <li>
+    <b>Host it locally</b>
+    Start the Archipelago server on this machine against the seed you just made,
+    with the server console right there. Publishing to archipelago.gg stays a
+    separate, deliberate step.
+  </li>
+</ul>
+
+<h2>Getting started</h2>
+<p>Windows, Python 3.10 or newer with tkinter, and an Archipelago install.</p>
+<pre><code>git clone https://github.com/vitsorg/APLobbyGen
+cd APLobbyGen
+python aplobby_gui.py</code></pre>
+
+<h3>Or from the command line</h3>
+<pre><code>python aplobby.py import folder path\to\configs   add configs to the lobby
+python aplobby.py list                            show the roster
+python aplobby.py generate                        build a seed, no network
+python aplobby.py host                            host it on this machine</code></pre>
+
+<div class="note">
+  <b>Nothing is downloaded for you.</b> The tool tells you which world file and
+  which client each game needs, and links to them. GitHub release layouts differ
+  enough per project that guessing which asset to fetch would do more harm than
+  a person clicking through. World files and player configs are self-supplied.
+</div>
+
+<h2>Verification</h2>
+<p>
+  Five test suites, all offline except the one that deliberately hosts on
+  loopback and connects to itself. They assert rather than print, so a silent
+  pass is a real pass &mdash; including one that drives the real window with
+  nobody watching.
+</p>
+<pre><code>python selftest_lobby.py     the store: identity, history, crash recovery
+python selftest_sources.py   the importers, with the network stubbed
+python selftest_gui.py       drives the real window with nobody watching
+python selftest_serve.py     really starts a server, really connects to it
+python selftest_links.py     the upstream pointers and their client states</code></pre>
+
+<h2>Licence and contributing</h2>
+<p>
+  Source-available rather than open source: run it freely for Archipelago
+  multiworlds and share it unmodified, but changes come back here as pull
+  requests instead of being published as a separate version. Forking to open a
+  PR is explicitly permitted. See the
+  <a href="https://github.com/vitsorg/APLobbyGen/blob/main/LICENSE">licence</a>
+  for the exact terms.
+</p>
+
+<footer>
+  <p>
+    <a href="https://github.com/vitsorg/APLobbyGen">github.com/vitsorg/APLobbyGen</a>
+    &middot; not affiliated with or endorsed by the Archipelago project
+  </p>
+</footer>
+
+</div>
+</body>
+</html>
