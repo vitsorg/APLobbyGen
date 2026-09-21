@@ -11,9 +11,24 @@ __pycache__/
 .venv/
 venv/
 
-# never commit player configs or seeds
+# Never commit anything a player supplies for themselves: configs, world
+# files, seeds, saves, spoilers or the patch files a seed hands out. These
+# rules are deliberately broader than what has bitten us - a config saved as
+# .yml, a seed zip renamed by hand, or a spoiler copied somewhere convenient
+# would each have slipped past the narrower version of this list.
 *.yaml
+*.yml
 *.apworld
 *.archipelago
-AP_*.zip
+*.apsave
+*_Spoiler.txt
+
+# Seed zips and the per-player patch files inside them. Every zip, not just
+# AP_*.zip: a seed renamed by hand is still a seed, and nothing in this repo
+# is legitimately a zip.
+*.zip
+*.ap[a-z0-9]*
+!*.apworld.txt
+
+# local UI preference, carries a machine-specific path
 ui.json
