@@ -1,6 +1,5 @@
 {
-  "_comment": "What we know about each installed world beyond its own manifest. 'repos' names an upstream that publishes the world file itself - still only accepted if it actually ships an asset matching the world's filename, so a wrong entry is ignored rather than trusted. 'anchors' records a version the world states about something other than itself: the engine it bundles or pins. An anchor is a comparable identifier, NOT the world's own version - two different builds can share one - so the hash in the lock remains the only exact identity. 'no_upstream' records a world confirmed to publish no world file on GitHub, so it reports as checked rather than unexamined.",
-
+  "_comment": "What we know about each installed world beyond its own manifest. 'repos' names an upstream that publishes the world file itself - still only accepted if it actually ships an asset matching the world's filename, so a wrong entry is ignored rather than trusted. 'anchors' records a version the world states about something other than itself: the engine it bundles or pins. An anchor is a comparable identifier, NOT the world's own version - two different builds can share one - so the hash in the lock remains the only exact identity. 'no_upstream' records a world confirmed to publish no world file on GitHub, so it reports as checked rather than unexamined. 'clients' records what a player installs to PLAY, which is a different question from where the world file comes from: a slug is absent when nobody has investigated it, which is deliberately distinguishable from state 'none'. The 'bundled' state is never stored here - it is derived from whether the installed apworld ships client.py, so it cannot go stale. Every entry carries the evidence it was read from, so a wrong one can be checked rather than trusted.",
   "repos": {
     "spire2": "dlueben1/Slay-the-Spire-2-Archipelago",
     "residentevil2remake": "FuzzyGamesOn/RE2R_AP_World",
@@ -13,7 +12,39 @@
     "everhood_2": "DeamonHunter/ArchipelagoEverhood2",
     "oribf": "c-ostic/OriBFArchipelago"
   },
-
+  "clients": {
+    "pseudoregalia": {
+      "state": "external",
+      "kind": "github",
+      "name": "Pseudoregalia Archipelago mod",
+      "repo": "pseudoregalia-modding/pseudoregalia-archipelago",
+      "evidence": "the world's own docs link this repo's latest release for both the mod and the apworld",
+      "note": "same repo publishes the world file - one download covers both"
+    },
+    "subnautica": {
+      "state": "external",
+      "kind": "github",
+      "name": "Subnautica Archipelago mod",
+      "repo": "Berserker66/ArchipelagoSubnauticaModSrc",
+      "evidence": "the world's docs name this releases page as where the mod comes from"
+    },
+    "outer_wilds": {
+      "state": "external",
+      "kind": "github",
+      "name": "Outer Wilds Archipelago Randomizer",
+      "repo": "Ixrec/OuterWildsArchipelagoRandomizer",
+      "evidence": "named inside the apworld",
+      "note": "normally installed through the Outer Wilds Mod Manager rather than by hand"
+    },
+    "kh2": {
+      "state": "external",
+      "kind": "guide",
+      "name": "KH2 Panacea / Mod Loader setup",
+      "url": "https://tommadness.github.io/KH2Randomizer/setup/Panacea-ModLoader/",
+      "evidence": "the world's docs send players to this guide for the required mod loader",
+      "note": "the AP client itself (ArchipelagoKH2Client) ships with Archipelago; this guide covers the game-side setup"
+    }
+  },
   "anchors": {
     "ff6wc": {
       "kind": "game version",
@@ -51,7 +82,6 @@
       "evidence": "self-declared 1.2.3; the lobby labels its own repack 1.2.3+hotfix1, differing only in Client.py"
     }
   },
-
   "no_upstream": {
     "dkc": "distributed via Discord; the lobby serves a 1.2.3+hotfix1 repack",
     "k64": "distributed via Discord",

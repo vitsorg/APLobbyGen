@@ -36,6 +36,12 @@ Generation touches the network exactly never.
 - **A run lock.** Every generation records what it was built from - world files,
   hashes, versions, sources - beside the seed, so a run stays explicable months
   later.
+- **Where to get things.** Two upstreams matter per game and they are
+  different questions: the `.apworld` the generator needs, and the client or
+  mod the player installs to actually play. Both are tracked as links with the
+  evidence they were read from, the games in your lobby are checked before the
+  rest of the catalogue, and nothing is ever downloaded automatically - GitHub
+  release layouts vary too much per project for that to be safe.
 - **Local hosting.** Start the Archipelago server on this machine against the
   seed you just made, with the server console right there. Nothing is uploaded.
 - **Publishing, when you want it.** Uploading to archipelago.gg is a separate,
@@ -64,6 +70,8 @@ python aplobby.py import folder path\to\configs   add configs to the lobby
 python aplobby.py list                            show the roster
 python aplobby.py generate                        build a seed, no network
 python aplobby.py host                            host the newest seed locally
+python links.py --lobby-first                     upstreams, your games first
+python links.py --missing                         clients nobody has investigated
 ```
 
 `generate` exits 0 on success, 1 if preflight failed, 2 if generation failed,
@@ -92,6 +100,7 @@ python selftest_lobby.py     the store: identity, history, crash recovery
 python selftest_sources.py   the importers, with the network stubbed
 python selftest_gui.py       drives the real window with nobody watching
 python selftest_serve.py     really starts a server, really connects to it
+python selftest_links.py     the upstream pointers and their four-state client map
 ```
 
 They assert rather than print, so a silent pass is a real pass.

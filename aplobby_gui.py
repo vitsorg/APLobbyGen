@@ -14,11 +14,13 @@ import json
 import os
 import queue
 import threading
+import webbrowser
 import zipfile
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 
 import aplobby as core
+import links
 import lobby
 import serve
 import sources
@@ -203,6 +205,8 @@ class App(ttk.Frame):
         ttk.Button(row, text="Sit out", command=lambda: self.set_selected(False)).pack(
             side="left", padx=6)
         ttk.Button(row, text="Remove from lobby", command=self.remove_selected).pack(side="left")
+        ttk.Button(row, text="Where to get it...", command=self.show_links).pack(
+            side="left", padx=6)
         ttk.Label(row, text="   double-click a row to include or exclude it",
                   style="Muted.TLabel").pack(side="left")
 
@@ -435,10 +439,11 @@ class App(ttk.Frame):
         """
         rows = [dict(e) for e in lb.entries]
         index, _used, _missing = core.preflight(rows, ap)
-        anchors = self._anchors()
+        registry = links.load()
         for r in rows:
             hit = index.get(r.get("game"))
-            r["version"] = self._version_for(hit, anchors) if hit else None
+            r["version"] = self._version_for(hit, registry["anchors"]) if hit else None
+            r["links"] = links.for_row(r, registry)
         self.index = index
         self.rows = rows
         self.msgs.put(("rows", rows))
@@ -753,6 +758,61 @@ class App(ttk.Frame):
 
     # ---------------------------------------------------------- publish
 
+    # ---------------------------------------------------------- upstreams
+
+    def show_links(self):
+        """Where the selected player's world file and client come from.
+
+        Links only. Nothing is downloaded: GitHub layouts differ enough per
+        project that guessing which asset to fetch does more harm than a
+        person clicking through.
+        """
+        picked = [r for r in self.rows if r["slot"] in set(self.tree.selection())]
+        if not picked:
+            messagebox.showinfo("Where to get it",
+                                "Select a player first.")
+            return
+
+        self.say("")
+        opened = []
+        for r in picked:
+            info = r.get("links") or {}
+            self.say(f"{r.get('name') or r['slot']} - {r.get('game') or '?'}")
+            world = info.get("world")
+            if world and world.get("url"):
+                kind = "world file" if world["state"] == "repo" else "engine"
+                self.say(f"  {kind:8} {world['url']}")
+            elif world:
+                self.say(f"  world    no upstream - {world.get('note', '')}")
+            else:
+                self.say("  world    upstream not investigated")
+
+            c = info.get("client") or {}
+            if c.get("url"):
+                self.say(f"  client   {c.get('name') or 'client'} - {c['url']}")
+            elif c.get("state") == links.BUNDLED:
+                self.say("  client   ships inside the apworld - every player "
+                         "needs the identical file")
+            elif c.get("state") == links.NONE:
+                self.say(f"  client   none needed - {c.get('note', '')}")
+            else:
+                self.say("  client   not investigated - see registry.json")
+            opened += [u for _label, u in links.urls(info)]
+
+        if not opened:
+            self.msgs.put(("status", "No links known for that selection."))
+            return
+        self.clipboard_clear()
+        self.clipboard_append("\n".join(dict.fromkeys(opened)))
+        self.msgs.put(("status", f"{len(set(opened))} link(s) logged and copied "
+                                 "to the clipboard."))
+        if len(picked) == 1 and messagebox.askyesno(
+                "Where to get it",
+                f"Open {len(set(opened))} link(s) for "
+                f"{picked[0].get('name') or picked[0]['slot']} in your browser?"):
+            for url in dict.fromkeys(opened):
+                webbrowser.open(url)
+
     # ---------------------------------------------------------- local server
 
     def toggle_host(self):
@@ -898,7 +958,6 @@ class App(ttk.Frame):
                 "Create the room",
                 f"Open {url} ?\n\nThis starts a live multiworld server that "
                 "players can connect to."):
-            import webbrowser
             webbrowser.open(url)
             self.msgs.put(("status", "Room link opened in your browser."))
 

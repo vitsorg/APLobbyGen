@@ -93,6 +93,11 @@ def read_world(path: str):
         # is "AP-K". Strip the real suffix instead.
         if repo.endswith(".git"):
             repo = repo[: -len(".git")]
+        # A URL that ends a sentence takes the full stop with it, because dots
+        # are legal in repo names: "…/OuterWildsArchipelagoRandomizer." would
+        # be looked up verbatim and 404. Trailing punctuation is never part of
+        # a repo name, so strip it.
+        repo = repo.rstrip(".,;:)")
         key = f"{owner}/{repo}".lower()
         if key in SKIP_REPOS or key in seen:
             continue
@@ -140,6 +145,7 @@ def main() -> int:
     ap.add_argument("--all", action="store_true", help="include the bundled worlds")
     ap.add_argument("--download", metavar="DIR", help="download newer builds here (no install)")
     ap.add_argument("--only", help="comma-separated slugs to check")
+    ap.add_argument("--first", help="comma-separated slugs to check before the rest")
     args = ap.parse_args()
 
     folders = [os.path.join(args.ap, "custom_worlds")]
@@ -151,10 +157,16 @@ def main() -> int:
         if os.path.isdir(folder):
             files += [os.path.join(folder, f) for f in sorted(os.listdir(folder))
                       if f.endswith(".apworld")]
+    slug_of = lambda f: os.path.basename(f)[: -len(".apworld")]
     if args.only:
         wanted = {s.strip() for s in args.only.split(",")}
-        files = [f for f in files
-                 if os.path.basename(f)[: -len(".apworld")] in wanted]
+        files = [f for f in files if slug_of(f) in wanted]
+    if args.first:
+        # Sort, never filter: the games being played are checked first, and
+        # the rest of the catalogue still gets checked afterwards. The caller
+        # supplies the list, so this module needs no idea what a lobby is.
+        priority = {s.strip() for s in args.first.split(",")}
+        files.sort(key=lambda f: (slug_of(f) not in priority, slug_of(f)))
 
     reg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "registry.json")
     registry, no_upstream, anchors = {}, {}, {}
