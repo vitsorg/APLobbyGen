@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import os
 import shutil
+import socket
 import sys
 import tempfile
 import time
 import tkinter as tk
 
+import aplobby as core
 import lobby
 import sources
 
@@ -150,6 +152,32 @@ def main() -> int:
             ok("the chosen theme is written to ui.json, so it survives a restart")
             assert theme_mod.resolve("auto") in ("light", "dark")
             ok(f"auto resolves to the Windows setting: {theme_mod.resolve('auto')}")
+
+            # -- hosting, driven through the window ------------------------
+            seed = core.latest_seed()
+            if not seed:
+                print("  --   no generated seed on disk, skipping the host check")
+            else:
+                app.port_var.set("38398")
+                app.toggle_host()
+                pump(root, app, seconds=300)
+                assert app.server and app.server.running, "the server did not start"
+                assert app.host_urls and "38398" in app.host_urls[0], app.host_urls
+                ok(f"Host locally started a real server at {app.host_urls[0]}")
+                assert str(app.host_btn["text"]) == "Stop hosting"
+                assert str(app.cmd_entry["state"]) == "normal"
+                ok("the button flips to Stop hosting and the console opens")
+
+                with socket.create_connection(("127.0.0.1", 38398), timeout=10):
+                    pass
+                ok("a client can connect to the port the window advertises")
+
+                app.toggle_host()
+                pump(root, app, seconds=120)
+                assert app.server is None, "the server was not cleared"
+                assert str(app.host_btn["text"]) == "Host locally"
+                assert app.host_addr.get() == "not hosting"
+                ok("Stop hosting really stops it and the bar resets")
 
             # -- a bad Archipelago path degrades, not explodes --------------
             app.lobby_root = lobby_root

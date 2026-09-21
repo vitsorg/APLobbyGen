@@ -4,6 +4,7 @@ r"""Generate an Archipelago multiworld from the local lobby.
     python aplobby.py import folder <dir>   add a folder of configs
     python aplobby.py list                  show the roster
     python aplobby.py generate              build the seed
+    python aplobby.py host                  host the newest seed locally
 
 The lobby on this machine owns the roster; a remote room is one way to put
 configs into it, not the thing that defines it. generate needs no network.
@@ -306,6 +307,25 @@ def new_run_dir(base=None):
     raise RuntimeError(f"could not make a run directory under {base}")
 
 
+def latest_seed(base=None):
+    """The newest generated seed zip under runs/, or None.
+
+    Hosting almost always means "the one I just made", so the seed argument is
+    optional everywhere and defaults to this.
+    """
+    base = base or os.path.join(HERE, "runs")
+    if not os.path.isdir(base):
+        return None
+    for d in sorted(os.listdir(base), reverse=True):
+        out = os.path.join(base, d, "output")
+        if not os.path.isdir(out):
+            continue
+        zips = [f for f in sorted(os.listdir(out)) if f.endswith(".zip")]
+        if zips:
+            return os.path.join(out, zips[0])
+    return None
+
+
 # ---------------------------------------------------------------- commands
 
 def cmd_import(args) -> int:
@@ -480,6 +500,22 @@ def cmd_generate(args) -> int:
 
 # ---------------------------------------------------------------- entry point
 
+def cmd_host(args) -> int:
+    """Host a seed on this machine. The seed never leaves it."""
+    import serve
+
+    seed = args.seed or latest_seed()
+    if not seed:
+        print("no seed to host - generate one first, or name a seed zip")
+        return 1
+    print(f"hosting {os.path.basename(seed)}")
+    return serve.main([seed, "--ap", args.ap, "--port", str(args.port)]
+                      + (["--password", args.password] if args.password else [])
+                      + (["--server-password", args.server_password]
+                         if args.server_password else [])
+                      + (["--no-save"] if args.no_save else []))
+
+
 def build_parser():
     ap = argparse.ArgumentParser(
         prog="aplobby",
@@ -518,6 +554,17 @@ def build_parser():
     gen.add_argument("--warn-ok", action="store_true",
                      help="exit 0 even when a config had settings silently dropped")
     gen.set_defaults(func=cmd_generate)
+
+    host = sub.add_parser("host", help="host a seed on this machine")
+    host.add_argument("seed", nargs="?", help="seed zip (default: the newest run)")
+    host.add_argument("--ap", default=AP_DEFAULT)
+    host.add_argument("--port", type=int, default=38281)
+    host.add_argument("--password", help="password players must give to join")
+    host.add_argument("--server-password", dest="server_password",
+                      help="password for admin console commands")
+    host.add_argument("--no-save", action="store_true",
+                      help="do not write a .apsave - throwaway test runs")
+    host.set_defaults(func=cmd_host)
     return ap
 
 
@@ -526,7 +573,8 @@ def main(argv=None) -> int:
 
     # Compatibility: this tool used to take a bare room URL and do everything.
     # Keep that working rather than erroring on muscle memory.
-    known = {"import", "list", "generate", "enable", "disable", "remove", "-h", "--help"}
+    known = {"import", "list", "generate", "host", "enable", "disable", "remove",
+             "-h", "--help"}
     if argv and argv[0] not in known and not argv[0].startswith("-"):
         try:
             room_id(argv[0])

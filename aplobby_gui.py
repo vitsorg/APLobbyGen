@@ -20,6 +20,7 @@ from tkinter import ttk, filedialog, messagebox, simpledialog
 
 import aplobby as core
 import lobby
+import serve
 import sources
 import theme
 
@@ -47,6 +48,8 @@ class App(ttk.Frame):
         self.spoiler_path: str | None = None
         self.busy = False
         self.lobby_root = os.path.join(HERE, "lobby")
+        self.server: serve.Server | None = None
+        self.host_urls: list[str] = []
 
         # Paint before building: ttk styles are global, so widgets created
         # afterwards are born with the right colours and never flash white.
@@ -55,9 +58,14 @@ class App(ttk.Frame):
 
         self._build_lobby_bar()
         self._build_actions()
+        self._build_host_bar()
         self._build_table()
         self._build_log()
         self._build_status()
+
+        # A running server is a child process: closing the window without
+        # stopping it leaves it holding the port.
+        master.winfo_toplevel().protocol("WM_DELETE_WINDOW", self.on_close)
 
         self.after(100, self._drain)
         # Load and preflight on the worker thread: index_worlds() hashes every
@@ -137,6 +145,32 @@ class App(ttk.Frame):
         self.copy_btn = ttk.Button(bar, text="Copy seed path", command=self.copy_seed,
                                    state="disabled")
         self.copy_btn.pack(side="right", padx=6)
+
+    def _build_host_bar(self):
+        """Hosting on this machine: the local counterpart to publishing."""
+        bar = ttk.LabelFrame(self, text="Local server", padding=6)
+        bar.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+
+        self.host_btn = ttk.Button(bar, text="Host locally", command=self.toggle_host)
+        self.host_btn.pack(side="left")
+
+        ttk.Label(bar, text="port").pack(side="left", padx=(10, 4))
+        self.port_var = tk.StringVar(value=str(serve.DEFAULT_PORT))
+        ttk.Entry(bar, textvariable=self.port_var, width=7).pack(side="left")
+
+        self.host_addr = tk.StringVar(value="not hosting")
+        ttk.Label(bar, textvariable=self.host_addr, style="Muted.TLabel").pack(
+            side="left", padx=10)
+        self.addr_btn = ttk.Button(bar, text="Copy address", command=self.copy_address,
+                                   state="disabled")
+        self.addr_btn.pack(side="left")
+
+        # The server console is how you test: /players, /release, /collect.
+        self.cmd_var = tk.StringVar()
+        ttk.Label(bar, text="console", style="Muted.TLabel").pack(side="left", padx=(12, 0))
+        self.cmd_entry = ttk.Entry(bar, textvariable=self.cmd_var, state="disabled")
+        self.cmd_entry.pack(side="right", fill="x", expand=True, padx=(12, 0))
+        self.cmd_entry.bind("<Return>", lambda _e: self.send_command())
 
     def _build_table(self):
         box = ttk.LabelFrame(self, text="Players", padding=6)
@@ -310,6 +344,7 @@ class App(ttk.Frame):
             b.configure(state="normal")
         self.upstream_btn.configure(state="normal" if self.rows else "disabled")
         self.publish_btn.configure(state="normal" if self.seed_zip else "disabled")
+        self._refresh_host_state()
         self._refresh_gen_state()
 
     def _refresh_gen_state(self):
@@ -435,7 +470,10 @@ class App(ttk.Frame):
         self.msgs.put(("status",
                        f"{len(missing)} game(s) have no installed world."
                        if missing else
-                       (f"{len(rows)} player(s) ready to generate." if rows else
+                       # Enabled, not total: a roster of 23 with 21 sitting out
+                       # generates a seed for 2.
+                       (f"{len([r for r in rows if r.get('enabled', True)])}"
+                        " player(s) ready to generate." if rows else
                         "The lobby is empty - import a room, a folder or a zip.")))
 
     # ---------------------------------------------------------- importing
@@ -714,6 +752,95 @@ class App(ttk.Frame):
                        + (f" - {len(warn)} warning(s)" if warn else "")))
 
     # ---------------------------------------------------------- publish
+
+    # ---------------------------------------------------------- local server
+
+    def toggle_host(self):
+        """Start or stop a server on this machine. Nothing is uploaded."""
+        if self.server and self.server.running:
+            self._work(self._stop_host)
+            return
+
+        seed = self.seed_zip or core.latest_seed()
+        if not seed:
+            seed = filedialog.askopenfilename(
+                title="Seed to host",
+                filetypes=[("Seed zip", "*.zip"),
+                           ("Multidata", "*.archipelago"), ("All files", "*.*")])
+            if not seed:
+                return
+        try:
+            port = int(self.port_var.get().strip())
+        except ValueError:
+            messagebox.showerror("Host locally", "The port must be a number.")
+            return
+        snap = self._snapshot()
+        self._work(lambda: self._start_host(seed, port, snap))
+
+    def _start_host(self, seed, port, snap):
+        self.msgs.put(("status", "Starting the local server..."))
+        self.say(f"\nhosting {os.path.basename(seed)} on port {port}")
+        self.say("  loading the data packages takes a few seconds per game")
+        srv = serve.Server(snap["ap"])
+        try:
+            srv.start(seed, port, out_dir=self.run_dir or os.path.dirname(seed),
+                      on_line=lambda line: self.say(f"  {line}"))
+            self.server = srv
+            srv.wait_until_hosting()
+        except Exception:
+            srv.stop()                 # never leave a half-started child behind
+            self.server = None
+            raise
+        self.host_urls = srv.connect_strings()
+        self.say(f"  connect at {' or '.join(self.host_urls)}")
+        self.say("  players still need their own patch file from the seed zip")
+        self.msgs.put(("done", lambda: self.host_addr.set(
+            "hosting - " + " or ".join(self.host_urls))))
+        self.msgs.put(("status", f"Hosting locally at {self.host_urls[0]}"))
+
+    def _stop_host(self):
+        self.msgs.put(("status", "Stopping the local server..."))
+        code = self.server.stop()
+        self.server, self.host_urls = None, []
+        self.say(f"server stopped (exit code {code})")
+        self.msgs.put(("status", "Local server stopped."))
+
+    def _refresh_host_state(self):
+        on = bool(self.server and self.server.running)
+        self.host_btn.configure(text="Stop hosting" if on else "Host locally")
+        self.addr_btn.configure(state="normal" if on and self.host_urls else "disabled")
+        self.cmd_entry.configure(state="normal" if on else "disabled")
+        if not on:
+            self.host_addr.set("not hosting")
+
+    def send_command(self):
+        """Pass a line to the server console, e.g. /players."""
+        line = self.cmd_var.get().strip()
+        if not line or not (self.server and self.server.running):
+            return
+        self.cmd_var.set("")
+        self.say(f"> {line}")
+        try:
+            self.server.send(line)
+        except (serve.ServeError, OSError) as exc:
+            self.say(f"  ! {exc}")
+
+    def copy_address(self):
+        if not self.host_urls:
+            return
+        self.clipboard_clear()
+        self.clipboard_append(self.host_urls[0])
+        self.msgs.put(("status", f"Copied {self.host_urls[0]} to the clipboard."))
+
+    def on_close(self):
+        """Do not orphan the server: it would keep the port and the save file."""
+        if self.server and self.server.running:
+            if not messagebox.askokcancel(
+                    "Quit", "The local server is still running.\n\n"
+                            "Stop it and quit?"):
+                return
+            self.server.stop()
+        self.winfo_toplevel().destroy()
 
     def publish(self):
         """Upload the generated seed to archipelago.gg.
