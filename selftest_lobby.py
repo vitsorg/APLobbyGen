@@ -183,6 +183,33 @@ def main() -> int:
         assert not os.path.isfile(os.path.join(root, ".lock"))
         ok("lock released on exit")
 
+        # -- a BOM must not hide the name -------------------------------
+        BOM = b"\xef\xbb\xbf"
+        bom = BOM + b"name: BomPlayer\r\ngame: Outer Wilds\r\n"
+        assert core.yaml_fields(bom) == ("BomPlayer", "Outer Wilds"), core.yaml_fields(bom)
+        ok("a config saved with a byte-order mark still reports its name")
+
+        # -- a hand edit is picked up on the next load ---------------------
+        edited = os.path.join(tempfile.mkdtemp(prefix="resync-"), "lobby")
+        with lobby.locked(edited) as lb:
+            _, e = lb.upsert(b"name: Before\ngame: Outer Wilds\n",
+                             {"kind": "test", "id": "resync"})
+            slot, was = e["slot"], e["sha256"]
+        # Someone opens players/pNNN.yaml in an editor and saves it with a BOM.
+        with open(os.path.join(edited, "players", slot + ".yaml"), "wb") as fh:
+            fh.write(BOM + b"name: After\ngame: Outer Wilds\n")
+        with lobby.locked(edited) as lb:
+            e = lb.find(slot)
+            assert e["name"] == "After", e["name"]
+            assert e["sha256"] != was
+            assert "Before" in e["names_seen"] and "After" in e["names_seen"]
+            assert e["history"][-1]["sha256"] == was
+            assert not lb.problems()
+        ok("a config edited by hand is re-read on load, old sha kept in history")
+        with lobby.locked(edited) as lb:            # and it stays put
+            assert lb.resynced == [], lb.resynced
+        ok("a second load re-reads nothing: resync is not a treadmill")
+
         # -- the manifest is valid, readable JSON -------------------------
         doc = json.load(open(os.path.join(root, "lobby.json"), encoding="utf-8"))
         assert doc["schema"] == lobby.SCHEMA

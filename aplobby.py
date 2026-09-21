@@ -112,7 +112,10 @@ def yaml_fields(data: bytes):
     Only the two top-level scalars are needed, and reading them by hand keeps
     this dependency-free. Handles quoted and unquoted values.
     """
-    text = data.decode("utf-8", "replace")
+    # utf-8-sig, not utf-8: Windows editors save YAML with a byte-order mark,
+    # and a BOM sits between the start of the file and "name:", so "^name:"
+    # never matches and a perfectly good config reads as having no name.
+    text = data.decode("utf-8-sig", "replace")
     grab = lambda key: next(
         (m.group(1).strip().strip("\"'")
          for m in re.finditer(rf"^{key}:\s*(.+?)\s*$", text, re.M)), None)
@@ -139,7 +142,7 @@ def world_game(data: bytes):
             pass
     init = next((n for n in names if n.endswith("__init__.py") and n.count("/") == 1), None)
     if init:
-        src = z.read(init).decode("utf-8", "replace")
+        src = z.read(init).decode("utf-8-sig", "replace")
         for m in re.finditer(r'^\s*game\s*(?::\s*str)?\s*=\s*["\'](.+?)["\']', src, re.M):
             candidate = m.group(1)
             if "/" not in candidate:

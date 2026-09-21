@@ -166,6 +166,7 @@ class Lobby:
         self.next_slot = 1
         self.migrations: list[str] = []
         self.adopted: list[str] = []   # orphans taken in by the last load()
+        self.resynced: list[str] = []  # entries re-read because the file moved on
         self.created = _now()
 
     # -- persistence ------------------------------------------------------
@@ -233,6 +234,8 @@ class Lobby:
         known = {e["slot"] for e in self.entries}
         for e in self.entries:
             e["missing"] = not os.path.isfile(self._blob(e["slot"]))
+            if not e["missing"]:
+                self._resync(e)
 
         if os.path.isdir(self.players_dir):
             for fn in sorted(os.listdir(self.players_dir)):
@@ -260,6 +263,36 @@ class Lobby:
                         os.unlink(p)
                 except OSError:
                     pass
+
+    def _resync(self, e: dict):
+        """Re-read a config whose file no longer matches what we recorded.
+
+        The app tells people to edit players/*.yaml by hand and press Reload,
+        so the manifest has to be able to catch up with the file. The previous
+        bytes are already gone - overwritten in place by whatever edited them -
+        so there is nothing to retire into history; we record the sha we are
+        leaving behind so an older run lock is still explicable.
+
+        This also repairs entries whose name was recorded as null by an older,
+        worse parse, without needing a re-import.
+        """
+        try:
+            data = open(self._blob(e["slot"]), "rb").read()
+        except OSError:
+            return
+        digest = core.sha256(data)
+        name, game = core.yaml_fields(data)
+        if digest == e.get("sha256") and name == e.get("name") and game == e.get("game"):
+            return
+        if digest != e.get("sha256") and e.get("sha256"):
+            e.setdefault("history", []).append(
+                {"sha256": e["sha256"], "bytes": e.get("bytes"),
+                 "replaced": _now(), "source": [{"kind": "edited-in-place"}],
+                 "blob": False})
+        if name and name not in e.get("names_seen", []):
+            e.setdefault("names_seen", []).append(name)
+        e.update(name=name, game=game, sha256=digest, bytes=len(data), updated=_now())
+        self.resynced.append(e["slot"])
 
     # -- slots ------------------------------------------------------------
 
@@ -505,7 +538,7 @@ class locked:
             # just loaded; writing it back means the next reader - including a
             # person opening lobby.json - sees the recovered state, not the
             # damage.
-            if self.lb.adopted or self.lb.problems_at_load:
+            if self.lb.adopted or self.lb.resynced or self.lb.problems_at_load:
                 self.lb._persist()
         except Exception:
             self.lock.__exit__(None, None, None)

@@ -416,6 +416,9 @@ class App(ttk.Frame):
         if out:
             text += f" - {on} in, {out} sitting out"
         self.msgs.put(("done", lambda: self.lobby_summary.set(text)))
+        for slot in lb.resynced:
+            e = lb.find(slot) or {}
+            self.say(f"  {slot} re-read from disk: now named {e.get('name') or '?'}")
         for p in lb.problems():
             self.say(f"  ! {p}")
 
