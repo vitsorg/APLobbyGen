@@ -42,8 +42,12 @@ Generation touches the network exactly never.
   evidence they were read from, the games in your lobby are checked before the
   rest of the catalogue, and nothing is ever downloaded automatically - GitHub
   release layouts vary too much per project for that to be safe.
+- **One chosen seed, visibly.** The seed being hosted or published is picked
+  from a list of every run on disk, shown by name, date and size, and both
+  destinations use that one choice rather than each resolving its own idea of
+  "the latest".
 - **Local hosting.** Start the Archipelago server on this machine against the
-  seed you just made, with the server console right there. Nothing is uploaded.
+  selected seed, with the server console right there. Nothing is uploaded.
 - **Publishing, when you want it.** Uploading to archipelago.gg is a separate,
   deliberate step that hands back the links rather than opening a room for you.
 - **Light and dark.** Follows the Windows setting by default.
@@ -69,7 +73,8 @@ Or drive it from the command line:
 python aplobby.py import folder path\to\configs   add configs to the lobby
 python aplobby.py list                            show the roster
 python aplobby.py generate                        build a seed, no network
-python aplobby.py host                            host the newest seed locally
+python aplobby.py seeds                           list seeds you can host
+python aplobby.py host                            host a seed on this machine
 python links.py --lobby-first                     upstreams, your games first
 python links.py --missing                         clients nobody has investigated
 ```

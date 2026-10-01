@@ -14,6 +14,7 @@ import json
 import os
 import queue
 import threading
+import time
 import webbrowser
 import zipfile
 import tkinter as tk
@@ -46,6 +47,7 @@ class App(ttk.Frame):
         self.index: dict | None = None
         self.run_dir: str | None = None
         self.seed_zip: str | None = None
+        self.seeds: list = []
         self.published: dict | None = None
         self.spoiler_path: str | None = None
         self.busy = False
@@ -69,6 +71,7 @@ class App(ttk.Frame):
         # stopping it leaves it holding the port.
         master.winfo_toplevel().protocol("WM_DELETE_WINDOW", self.on_close)
 
+        self.after(50, self.refresh_seeds)
         self.after(100, self._drain)
         # Load and preflight on the worker thread: index_worlds() hashes every
         # installed apworld, which is hundreds of megabytes and would freeze
@@ -138,39 +141,55 @@ class App(ttk.Frame):
                                    state="disabled")
         self.room_btn.pack(side="left")
 
-        self.spoiler_btn = ttk.Button(bar, text="Open spoiler", command=self.open_spoiler,
+        self.spoiler_btn = ttk.Button(bar, text="Spoiler", command=self.open_spoiler,
                                       state="disabled")
         self.spoiler_btn.pack(side="right", padx=6)
-        self.open_btn = ttk.Button(bar, text="Open run folder", command=self.open_run,
+        self.open_btn = ttk.Button(bar, text="Run folder", command=self.open_run,
                                    state="disabled")
         self.open_btn.pack(side="right")
-        self.copy_btn = ttk.Button(bar, text="Copy seed path", command=self.copy_seed,
-                                   state="disabled")
-        self.copy_btn.pack(side="right", padx=6)
-
     def _build_host_bar(self):
-        """Hosting on this machine: the local counterpart to publishing."""
-        bar = ttk.LabelFrame(self, text="Local server", padding=6)
-        bar.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        """The seed being acted on, then hosting it here or publishing it away.
 
-        self.host_btn = ttk.Button(bar, text="Host locally", command=self.toggle_host)
+        Both destinations take the same zip, so it is chosen once, in one
+        place, and shown - rather than each action quietly resolving its own
+        idea of "the latest seed".
+        """
+        bar = ttk.LabelFrame(self, text="Seed", padding=6)
+        bar.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        bar.columnconfigure(1, weight=1)
+
+        ttk.Label(bar, text="hosting / publishing").grid(row=0, column=0, padx=(0, 8))
+        self.seed_var = tk.StringVar(value="")
+        self.seed_box = ttk.Combobox(bar, textvariable=self.seed_var, state="readonly")
+        self.seed_box.grid(row=0, column=1, sticky="ew")
+        self.seed_box.bind("<<ComboboxSelected>>", lambda _e: self.pick_seed())
+        ttk.Button(bar, text="Browse...", command=self.browse_seed).grid(
+            row=0, column=2, padx=(8, 0))
+        self.copy_btn = ttk.Button(bar, text="Copy path", command=self.copy_seed,
+                                   state="disabled")
+        self.copy_btn.grid(row=0, column=3, padx=(6, 0))
+
+        row = ttk.Frame(bar)
+        row.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(8, 0))
+
+        self.host_btn = ttk.Button(row, text="Host locally", command=self.toggle_host)
         self.host_btn.pack(side="left")
 
-        ttk.Label(bar, text="port").pack(side="left", padx=(10, 4))
+        ttk.Label(row, text="port").pack(side="left", padx=(10, 4))
         self.port_var = tk.StringVar(value=str(serve.DEFAULT_PORT))
-        ttk.Entry(bar, textvariable=self.port_var, width=7).pack(side="left")
+        ttk.Entry(row, textvariable=self.port_var, width=7).pack(side="left")
 
         self.host_addr = tk.StringVar(value="not hosting")
-        ttk.Label(bar, textvariable=self.host_addr, style="Muted.TLabel").pack(
+        ttk.Label(row, textvariable=self.host_addr, style="Muted.TLabel").pack(
             side="left", padx=10)
-        self.addr_btn = ttk.Button(bar, text="Copy address", command=self.copy_address,
+        self.addr_btn = ttk.Button(row, text="Copy address", command=self.copy_address,
                                    state="disabled")
         self.addr_btn.pack(side="left")
 
         # The server console is how you test: /players, /release, /collect.
         self.cmd_var = tk.StringVar()
-        ttk.Label(bar, text="console", style="Muted.TLabel").pack(side="left", padx=(12, 0))
-        self.cmd_entry = ttk.Entry(bar, textvariable=self.cmd_var, state="disabled")
+        ttk.Label(row, text="console", style="Muted.TLabel").pack(side="left", padx=(12, 0))
+        self.cmd_entry = ttk.Entry(row, textvariable=self.cmd_var, state="disabled")
         self.cmd_entry.pack(side="right", fill="x", expand=True, padx=(12, 0))
         self.cmd_entry.bind("<Return>", lambda _e: self.send_command())
 
@@ -318,6 +337,7 @@ class App(ttk.Frame):
                     payload()
         except queue.Empty:
             pass
+        self.after(50, self.refresh_seeds)
         self.after(100, self._drain)
 
     def _work(self, fn):
@@ -347,7 +367,7 @@ class App(ttk.Frame):
         for b in (self.reload_btn, self.import_btn):
             b.configure(state="normal")
         self.upstream_btn.configure(state="normal" if self.rows else "disabled")
-        self.publish_btn.configure(state="normal" if self.seed_zip else "disabled")
+        self._refresh_seed_state()
         self._refresh_host_state()
         self._refresh_gen_state()
 
@@ -747,9 +767,8 @@ class App(ttk.Frame):
             self.say(f"{len(dropped)} setting(s) were silently dropped - those players "
                      "are not getting what they configured.")
 
-        self.msgs.put(("done", lambda: (self.open_btn.configure(state="normal"),
-                                        self.copy_btn.configure(state="normal"),
-                                        self.publish_btn.configure(state="normal"),
+        self.msgs.put(("done", lambda: (self.refresh_seeds(select=seed_zip),
+                                        self.open_btn.configure(state="normal"),
                                         self.spoiler_btn.configure(
                                             state="normal" if self.spoiler_path else "disabled"))))
         self.msgs.put(("status",
@@ -757,6 +776,89 @@ class App(ttk.Frame):
                        + (f" - {len(warn)} warning(s)" if warn else "")))
 
     # ---------------------------------------------------------- publish
+
+    # ---------------------------------------------------------- the seed
+
+    @staticmethod
+    def _seed_label(entry) -> str:
+        when = time.strftime("%d %b %H:%M", time.localtime(entry["mtime"]))
+        return f"{entry['name']}  -  {when}  -  {entry['bytes']:,} bytes"
+
+    def refresh_seeds(self, select=None):
+        """Re-read runs/ and fill the picker. Keeps the current choice if it survives.
+
+        Called on load and after a generation, so a seed made this session
+        appears without a restart.
+        """
+        self.seeds = core.list_seeds()
+        labels, chosen = [], None
+        for e in self.seeds:
+            label = self._seed_label(e)
+            labels.append(label)
+            if select and os.path.abspath(select) == os.path.abspath(e["path"]):
+                chosen = label
+
+        # A seed picked with Browse... can live outside runs/; keep it listed
+        # rather than silently reverting to the newest one.
+        if select and chosen is None:
+            try:
+                st = os.stat(select)
+            except OSError:
+                select = None
+            else:
+                entry = {"path": select, "name": os.path.basename(select),
+                         "run": os.path.basename(os.path.dirname(select)),
+                         "bytes": st.st_size, "mtime": st.st_mtime}
+                self.seeds.insert(0, entry)
+                chosen = self._seed_label(entry)
+                labels.insert(0, chosen)
+
+        self.seed_box.configure(values=labels)
+        if chosen is None and not select:
+            # Keep what is already selected if it is still on disk.
+            current = self.seed_zip
+            chosen = next((self._seed_label(e) for e in self.seeds
+                           if current and os.path.abspath(e["path"]) ==
+                           os.path.abspath(current)), None)
+            if chosen is None and labels:
+                chosen = labels[0]
+        self.seed_var.set(chosen or "")
+        self.seed_zip = next((e["path"] for e in self.seeds
+                              if self._seed_label(e) == chosen), None)
+        self._refresh_seed_state()
+
+    def _refresh_seed_state(self):
+        on = bool(self.seed_zip)
+        self.copy_btn.configure(state="normal" if on else "disabled")
+        self.publish_btn.configure(state="normal" if on else "disabled")
+        if not self.seeds:
+            self.seed_var.set("no seed yet - generate one, or Browse...")
+
+    def pick_seed(self):
+        label = self.seed_var.get()
+        self.seed_zip = next((e["path"] for e in self.seeds
+                              if self._seed_label(e) == label), None)
+        self._refresh_seed_state()
+        if self.seed_zip:
+            self.msgs.put(("status", f"Seed: {self.seed_zip}"))
+            # Links belong to the seed that was published, not to this one.
+            self.published = None
+            self.room_btn.configure(state="disabled")
+            self.spoiler_path = core.extract_spoiler(
+                self.seed_zip, os.path.dirname(self.seed_zip))
+            self.spoiler_btn.configure(
+                state="normal" if self.spoiler_path else "disabled")
+            self.run_dir = os.path.dirname(os.path.dirname(self.seed_zip))
+            self.open_btn.configure(state="normal")
+
+    def browse_seed(self):
+        chosen = filedialog.askopenfilename(
+            title="Seed to host or publish",
+            initialdir=os.path.join(HERE, "runs"),
+            filetypes=[("Seed zip", "*.zip"), ("All files", "*.*")])
+        if chosen:
+            self.refresh_seeds(select=os.path.normpath(chosen))
+            self.pick_seed()
 
     # ---------------------------------------------------------- upstreams
 
@@ -821,12 +923,11 @@ class App(ttk.Frame):
             self._work(self._stop_host)
             return
 
-        seed = self.seed_zip or core.latest_seed()
+        # Whatever the Seed box shows is what gets hosted - no second guess.
+        seed = self.seed_zip
         if not seed:
-            seed = filedialog.askopenfilename(
-                title="Seed to host",
-                filetypes=[("Seed zip", "*.zip"),
-                           ("Multidata", "*.archipelago"), ("All files", "*.*")])
+            self.browse_seed()
+            seed = self.seed_zip
             if not seed:
                 return
         try:
@@ -855,7 +956,7 @@ class App(ttk.Frame):
         self.say(f"  connect at {' or '.join(self.host_urls)}")
         self.say("  players still need their own patch file from the seed zip")
         self.msgs.put(("done", lambda: self.host_addr.set(
-            "hosting - " + " or ".join(self.host_urls))))
+            f"hosting {os.path.basename(seed)} - " + " or ".join(self.host_urls))))
         self.msgs.put(("status", f"Hosting locally at {self.host_urls[0]}"))
 
     def _stop_host(self):

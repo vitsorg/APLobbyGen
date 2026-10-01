@@ -158,6 +158,17 @@ def apply(root, mode: str) -> dict:
                     insertcolor=p["fg"], bordercolor=p["border"])
     style.map("TEntry", fieldbackground=[("disabled", p["bg"])])
 
+    # A readonly Combobox keeps its own field colour, and its dropdown is a
+    # plain Tk listbox that ttk never touches - both need saying explicitly or
+    # the seed picker stays white on a dark window.
+    style.configure("TCombobox", fieldbackground=p["field"], background=p["surface"],
+                    foreground=p["fg"], arrowcolor=p["fg"], bordercolor=p["border"])
+    style.map("TCombobox",
+              fieldbackground=[("readonly", p["field"]), ("disabled", p["bg"])],
+              foreground=[("readonly", p["fg"]), ("disabled", p["muted"])],
+              selectbackground=[("readonly", p["field"])],
+              selectforeground=[("readonly", p["fg"])])
+
     style.configure("Treeview", background=p["field"], fieldbackground=p["field"],
                     foreground=p["fg"], bordercolor=p["border"], rowheight=21)
     style.map("Treeview",
@@ -186,7 +197,11 @@ def apply(root, mode: str) -> dict:
                            ("*Menu.background", p["surface"]),
                            ("*Menu.foreground", p["fg"]),
                            ("*Menu.activeBackground", p["sel_bg"]),
-                           ("*Menu.activeForeground", p["sel_fg"])):
+                           ("*Menu.activeForeground", p["sel_fg"]),
+                           ("*TCombobox*Listbox.background", p["field"]),
+                           ("*TCombobox*Listbox.foreground", p["fg"]),
+                           ("*TCombobox*Listbox.selectBackground", p["sel_bg"]),
+                           ("*TCombobox*Listbox.selectForeground", p["sel_fg"])):
         root.option_add(pattern, value)
     return p
 

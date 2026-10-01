@@ -4,6 +4,7 @@ r"""Generate an Archipelago multiworld from the local lobby.
     python aplobby.py import folder <dir>   add a folder of configs
     python aplobby.py list                  show the roster
     python aplobby.py generate              build the seed
+    python aplobby.py seeds                 list seeds you can host
     python aplobby.py host                  host the newest seed locally
 
 The lobby on this machine owns the roster; a remote room is one way to put
@@ -307,23 +308,42 @@ def new_run_dir(base=None):
     raise RuntimeError(f"could not make a run directory under {base}")
 
 
+def list_seeds(base=None):
+    """Every generated seed zip under runs/, newest run first.
+
+    One enumeration shared by the window and the command line: a seed you can
+    host must be a seed you can publish, and two separate scans would
+    eventually disagree about which is which.
+    """
+    base = base or os.path.join(HERE, "runs")
+    if not os.path.isdir(base):
+        return []
+    out = []
+    for d in sorted(os.listdir(base), reverse=True):
+        folder = os.path.join(base, d, "output")
+        if not os.path.isdir(folder):
+            continue
+        for fn in sorted(os.listdir(folder)):
+            if not fn.endswith(".zip"):
+                continue
+            path = os.path.join(folder, fn)
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            out.append({"path": path, "name": fn, "run": d,
+                        "bytes": st.st_size, "mtime": st.st_mtime})
+    return out
+
+
 def latest_seed(base=None):
-    """The newest generated seed zip under runs/, or None.
+    """The newest generated seed zip, or None.
 
     Hosting almost always means "the one I just made", so the seed argument is
     optional everywhere and defaults to this.
     """
-    base = base or os.path.join(HERE, "runs")
-    if not os.path.isdir(base):
-        return None
-    for d in sorted(os.listdir(base), reverse=True):
-        out = os.path.join(base, d, "output")
-        if not os.path.isdir(out):
-            continue
-        zips = [f for f in sorted(os.listdir(out)) if f.endswith(".zip")]
-        if zips:
-            return os.path.join(out, zips[0])
-    return None
+    seeds = list_seeds(base)
+    return seeds[0]["path"] if seeds else None
 
 
 # ---------------------------------------------------------------- commands
@@ -500,6 +520,21 @@ def cmd_generate(args) -> int:
 
 # ---------------------------------------------------------------- entry point
 
+def cmd_seeds(args) -> int:
+    """List the seeds available to host or publish, newest first."""
+    seeds = list_seeds()
+    if not seeds:
+        print("no seeds yet - run generate first")
+        return 1
+    for i, e in enumerate(seeds):
+        when = datetime.datetime.fromtimestamp(e["mtime"]).strftime("%Y-%m-%d %H:%M")
+        mark = "*" if i == 0 else " "
+        print(f" {mark} {e['name']:34} {when}  {e['bytes']:>10,}  {e['run']}")
+    print()
+    print(" * is what `host` uses when you name no seed")
+    return 0
+
+
 def cmd_host(args) -> int:
     """Host a seed on this machine. The seed never leaves it."""
     import serve
@@ -565,6 +600,9 @@ def build_parser():
     host.add_argument("--no-save", action="store_true",
                       help="do not write a .apsave - throwaway test runs")
     host.set_defaults(func=cmd_host)
+
+    seeds = sub.add_parser("seeds", help="list seeds you can host or publish")
+    seeds.set_defaults(func=cmd_seeds)
     return ap
 
 
@@ -573,8 +611,8 @@ def main(argv=None) -> int:
 
     # Compatibility: this tool used to take a bare room URL and do everything.
     # Keep that working rather than erroring on muscle memory.
-    known = {"import", "list", "generate", "host", "enable", "disable", "remove",
-             "-h", "--help"}
+    known = {"import", "list", "generate", "host", "seeds", "enable", "disable",
+             "remove", "-h", "--help"}
     if argv and argv[0] not in known and not argv[0].startswith("-"):
         try:
             room_id(argv[0])

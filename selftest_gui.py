@@ -153,6 +153,37 @@ def main() -> int:
             assert theme_mod.resolve("auto") in ("light", "dark")
             ok(f"auto resolves to the Windows setting: {theme_mod.resolve('auto')}")
 
+            # -- the seed picker ------------------------------------------
+            seeds = core.list_seeds()
+            if not seeds:
+                print("  --   no generated seeds on disk, skipping the picker check")
+            else:
+                assert len(app.seeds) == len(seeds), (len(app.seeds), len(seeds))
+                assert app.seed_zip == seeds[0]["path"], app.seed_zip
+                ok(f"the picker lists {len(seeds)} seed(s), newest selected by default")
+                assert os.path.basename(seeds[0]["path"]) in app.seed_var.get()
+                assert str(app.publish_btn["state"]) == "normal"
+                ok(f"the window shows which seed is targeted: {app.seed_var.get()[:46]}...")
+
+                if len(seeds) > 1:
+                    app.seed_var.set(app._seed_label(app.seeds[1]))
+                    app.pick_seed()
+                    root.update()
+                    assert app.seed_zip == seeds[1]["path"], app.seed_zip
+                    ok("choosing another seed retargets host and publish")
+                    app.seed_var.set(app._seed_label(app.seeds[0]))
+                    app.pick_seed()
+
+                # An empty picker must disable publishing, not host nothing.
+                keep_seeds, keep_zip = app.seeds, app.seed_zip
+                app.seeds, app.seed_zip = [], None
+                app._refresh_seed_state()
+                assert str(app.publish_btn["state"]) == "disabled"
+                assert "no seed yet" in app.seed_var.get()
+                ok(f"with no seed: publish off, box reads {app.seed_var.get()!r}")
+                app.seeds, app.seed_zip = keep_seeds, keep_zip
+                app.refresh_seeds(select=keep_zip)
+
             # -- hosting, driven through the window ------------------------
             seed = core.latest_seed()
             if not seed:
