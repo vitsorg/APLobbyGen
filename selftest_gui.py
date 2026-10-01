@@ -161,6 +161,11 @@ def main() -> int:
                 assert len(app.seeds) == len(seeds), (len(app.seeds), len(seeds))
                 assert app.seed_zip == seeds[0]["path"], app.seed_zip
                 ok(f"the picker lists {len(seeds)} seed(s), newest selected by default")
+                # Legacy run directories carry a room-id prefix, so a name sort
+                # would rank them above every plain timestamp.
+                times = [e["mtime"] for e in seeds]
+                assert times == sorted(times, reverse=True), "seeds are not newest-first"
+                ok("ordering is by write time, so a legacy run name cannot win")
                 assert os.path.basename(seeds[0]["path"]) in app.seed_var.get()
                 assert str(app.publish_btn["state"]) == "normal"
                 ok(f"the window shows which seed is targeted: {app.seed_var.get()[:46]}...")

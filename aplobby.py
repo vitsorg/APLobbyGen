@@ -319,7 +319,7 @@ def list_seeds(base=None):
     if not os.path.isdir(base):
         return []
     out = []
-    for d in sorted(os.listdir(base), reverse=True):
+    for d in sorted(os.listdir(base)):
         folder = os.path.join(base, d, "output")
         if not os.path.isdir(folder):
             continue
@@ -333,6 +333,10 @@ def list_seeds(base=None):
                 continue
             out.append({"path": path, "name": fn, "run": d,
                         "bytes": st.st_size, "mtime": st.st_mtime})
+    # By write time, never by directory name. Run directories used to carry a
+    # room-id prefix ("db04878c-20260919-..."), so a name sort puts those ahead
+    # of every plain timestamp and "the newest seed" silently means the oldest.
+    out.sort(key=lambda e: e["mtime"], reverse=True)
     return out
 
 
