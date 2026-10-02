@@ -215,6 +215,28 @@ def main() -> int:
                 assert app.host_addr.get() == "not hosting"
                 ok("Stop hosting really stops it and the bar resets")
 
+            # -- the tracker launcher ---------------------------------------
+            import tracker as trk
+            try:
+                trk.find_bridge()
+            except trk.TrackerError as exc:
+                print(f"  --   tracker bridge unavailable, skipping ({exc})")
+            else:
+                # Any run whose lock exists will do; take the newest seed's.
+                newest = core.latest_seed()
+                run_dir = os.path.dirname(os.path.dirname(newest)) if newest else ""
+                if run_dir and os.path.isfile(os.path.join(run_dir, "run.lock.json")):
+                    slots = trk.slots_from_lock(run_dir)
+                    assert slots and all(":" in s for s in slots), slots
+                    ok(f"slots come from the run lock: {', '.join(slots)}")
+                    bad = trk.bytecode_mismatch(run_dir)
+                    for b in bad:
+                        assert b["magic"] != b["bridge_magic"], b
+                    ok(f"bytecode check ran: {len(bad)} world(s) the tracker cannot import")
+                assert app.bridge is None
+                assert str(app.track_btn["text"]) == "Tracker"
+                ok("the tracker button starts idle and needs a seed")
+
             # -- a bad Archipelago path degrades, not explodes --------------
             app.lobby_root = lobby_root
             app.ap_var.set(os.path.join(tmp, "no-such-install"))

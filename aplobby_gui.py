@@ -26,6 +26,7 @@ import lobby
 import serve
 import sources
 import theme
+import tracker
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -54,6 +55,7 @@ class App(ttk.Frame):
         self.lobby_root = os.path.join(HERE, "lobby")
         self.server: serve.Server | None = None
         self.host_urls: list[str] = []
+        self.bridge: tracker.Bridge | None = None
 
         # Paint before building: ttk styles are global, so widgets created
         # afterwards are born with the right colours and never flash white.
@@ -185,6 +187,11 @@ class App(ttk.Frame):
         self.addr_btn = ttk.Button(row, text="Copy address", command=self.copy_address,
                                    state="disabled")
         self.addr_btn.pack(side="left")
+
+        self.track_btn = ttk.Button(row, text="Tracker", command=self.toggle_tracker)
+        self.track_btn.pack(side="left", padx=(12, 0))
+        self.track_var = tk.StringVar(value=str(tracker.DEFAULT_HTTP_PORT))
+        ttk.Entry(row, textvariable=self.track_var, width=6).pack(side="left", padx=(4, 0))
 
         # The server console is how you test: /players, /release, /collect.
         self.cmd_var = tk.StringVar()
@@ -369,6 +376,7 @@ class App(ttk.Frame):
         self.upstream_btn.configure(state="normal" if self.rows else "disabled")
         self._refresh_seed_state()
         self._refresh_host_state()
+        self._refresh_tracker_state()
         self._refresh_gen_state()
 
     def _refresh_gen_state(self):
@@ -1000,14 +1008,84 @@ class App(ttk.Frame):
         self.clipboard_append(self.host_urls[0])
         self.msgs.put(("status", f"Copied {self.host_urls[0]} to the clipboard."))
 
+    # ---------------------------------------------------------- tracker
+
+    def toggle_tracker(self):
+        """Run the local tracker dashboard against the seed being hosted.
+
+        Slots come from that seed's run lock, so the tracker cannot end up
+        watching a slot the running room does not contain - which is exactly
+        how a bridge was left hammering a server for a Cyberpunk slot after
+        the port moved on to another seed.
+        """
+        if self.bridge and self.bridge.running:
+            self._work(self._stop_tracker)
+            return
+        if not self.seed_zip:
+            messagebox.showinfo("Tracker", "Pick a seed first.")
+            return
+        run_dir = os.path.dirname(os.path.dirname(self.seed_zip))
+        try:
+            port = int(self.track_var.get().strip())
+            ap_port = int(self.port_var.get().strip())
+        except ValueError:
+            messagebox.showerror("Tracker", "The ports must be numbers.")
+            return
+        self._work(lambda: self._start_tracker(run_dir, ap_port, port))
+
+    def _start_tracker(self, run_dir, ap_port, http_port):
+        self.msgs.put(("status", "Starting the tracker..."))
+        br = tracker.Bridge()
+        try:
+            slots = tracker.slots_from_lock(run_dir)
+            self.say(f"\ntracking {', '.join(slots)} on port {ap_port}")
+
+            # Say this before launching: the dashboard would otherwise just
+            # show an empty Blockers panel with no explanation.
+            for bad in tracker.bytecode_mismatch(run_dir):
+                self.say(f"  ! {bad['game']}: {bad['file']} ships compiled modules "
+                         f"built for another Python; the tracker runs "
+                         f"{bad['bridge_python']}, so reachability will be "
+                         "unavailable for it (checks still update live)")
+
+            br.start(run_dir, ap_port, http_port, on_line=lambda l: self.say(f"  {l}"))
+            self.bridge = br
+            if br.synced:
+                self.say(f"  copied into the tracker: {', '.join(br.synced)}")
+            url = br.wait_until_serving(http_port, timeout=240)
+        except Exception:
+            br.stop()
+            self.bridge = None
+            raise
+        self.say(f"  dashboard {url}")
+        self.msgs.put(("status", f"Tracker at {url}"))
+        self.msgs.put(("done", lambda: webbrowser.open(url)))
+
+    def _stop_tracker(self):
+        self.msgs.put(("status", "Stopping the tracker..."))
+        code = self.bridge.stop()
+        self.bridge = None
+        self.say(f"tracker stopped (exit code {code})")
+        self.msgs.put(("status", "Tracker stopped."))
+
+    def _refresh_tracker_state(self):
+        on = bool(self.bridge and self.bridge.running)
+        self.track_btn.configure(text="Stop tracker" if on else "Tracker")
+
     def on_close(self):
         """Do not orphan the server: it would keep the port and the save file."""
-        if self.server and self.server.running:
+        running = [name for name, proc in (("local server", self.server),
+                                           ("tracker", self.bridge))
+                   if proc and proc.running]
+        if running:
             if not messagebox.askokcancel(
-                    "Quit", "The local server is still running.\n\n"
-                            "Stop it and quit?"):
+                    "Quit", f"The {' and the '.join(running)} still running.\n\n"
+                            "Stop and quit?"):
                 return
-            self.server.stop()
+            if self.server and self.server.running:
+                self.server.stop()
+            if self.bridge and self.bridge.running:
+                self.bridge.stop()
         self.winfo_toplevel().destroy()
 
     def publish(self):

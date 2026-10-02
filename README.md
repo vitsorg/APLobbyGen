@@ -46,6 +46,12 @@ Generation touches the network exactly never.
   from a list of every run on disk, shown by name, date and size, and both
   destinations use that one choice rather than each resolving its own idea of
   "the latest".
+- **A tracker, launched for you.** The local tracker bridge can be started
+  against the seed being hosted, with its slots read from that run's lock
+  rather than typed - so it cannot end up watching a slot the running room does
+  not contain. Worlds whose compiled modules target a different Python are
+  reported before launch, because the dashboard would otherwise just show an
+  empty reachability panel.
 - **Local hosting.** Start the Archipelago server on this machine against the
   selected seed, with the server console right there. Nothing is uploaded.
 - **Publishing, when you want it.** Uploading to archipelago.gg is a separate,
