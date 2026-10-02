@@ -177,13 +177,18 @@ def bytecode_mismatch(run_dir: str, bridge_root: str | None = None,
 
 
 def port_in_use(port: int, host: str = "127.0.0.1") -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            s.bind((host, port))
-            return False
-        except OSError:
+    """True if something is already listening there.
+
+    A connect test, not a bind test. Windows SO_REUSEADDR lets a second socket
+    bind a port another process is already listening on, so a bind check
+    cheerfully reports "free" while a server is running - which let an orphaned
+    tracker keep answering requests that a new one thought it owned.
+    """
+    try:
+        with socket.create_connection((host, port), timeout=1):
             return True
+    except OSError:
+        return False
 
 
 class Bridge:

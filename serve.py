@@ -76,15 +76,19 @@ def multidata_for(seed: str, out_dir: str | None = None) -> str:
                          ".archipelago file")
 
 
-def port_in_use(port: int, host: str = "0.0.0.0") -> bool:
-    """Check before launching, so a clash is a sentence and not a stack trace."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            s.bind((host, port))
-            return False
-        except OSError:
+def port_in_use(port: int, host: str = "127.0.0.1") -> bool:
+    """True if something is already listening there.
+
+    A connect test, not a bind test. Windows SO_REUSEADDR lets a second socket
+    bind a port another process is already listening on, so a bind check
+    cheerfully reports "free" while a server is running - which let an orphaned
+    tracker keep answering requests that a new one thought it owned.
+    """
+    try:
+        with socket.create_connection((host, port), timeout=1):
             return True
+    except OSError:
+        return False
 
 
 class Server:

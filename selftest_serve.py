@@ -63,6 +63,23 @@ def main() -> int:
                 pass
         ok("a missing or non-seed file raises ServeError with a reason")
 
+        # -- the port check must detect a real listener --------------------
+        import socket as _sock
+        probe = _sock.socket()
+        probe.bind(("127.0.0.1", 0))
+        probe.listen(1)
+        taken = probe.getsockname()[1]
+        try:
+            # A bind test with SO_REUSEADDR answers False here on Windows, which
+            # is how an orphaned server kept serving a port a new one believed
+            # it owned. Connect-based detection is the only reliable answer.
+            assert serve.port_in_use(taken), "a live listener was reported free"
+            ok(f"port {taken} with a real listener is reported in use")
+        finally:
+            probe.close()
+        assert not serve.port_in_use(taken), "a closed port is still reported in use"
+        ok("and free again once the listener closes")
+
         # -- host it for real ---------------------------------------------
         assert not serve.port_in_use(PORT), f"port {PORT} was already busy"
         srv = serve.Server()
