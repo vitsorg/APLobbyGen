@@ -102,6 +102,36 @@ def main() -> int:
         assert ships is expect, f"{why}: got {ships}, wanted {expect}"
     ok("client code is detected as .py or .pyc, any case - a compiled client counts")
 
+    # -- base ROMs declared by host.yaml --------------------------------
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as fake_ap:
+        host_yaml = [
+            "general_options:",
+            "  x: 1",
+            "earthbound_options:",
+            "  # File name of the EarthBound US ROM",
+            '  rom_file: "EarthBound.sfc"',
+            "sni_options:",
+            '  sni_path: "SNI"',
+            "outer_wilds_options:",
+            "  something: else",
+            "",
+        ]
+        with open(os.path.join(fake_ap, "host.yaml"), "w", encoding="utf-8") as fh:
+            fh.write("\n".join(host_yaml))
+        roms = links.host_roms(fake_ap)
+        assert roms == {"earthbound": "EarthBound.sfc"}, roms
+        ok("host.yaml parse finds rom_file blocks and ignores options without one")
+
+        st = links.rom_status("earthbound", roms, fake_ap)
+        assert st["rom"] == "EarthBound.sfc" and st["found"] is None
+        open(os.path.join(fake_ap, "EarthBound.sfc"), "wb").write(b"rom")
+        st = links.rom_status("earthbound", roms, fake_ap)
+        assert st["found"], st
+        ok("a missing ROM reports missing, and is found once it is in place")
+        assert links.rom_status("outer_wilds", roms, fake_ap) is None
+        ok("a world that needs no ROM says nothing rather than 'missing'")
+
     # -- against the real install --------------------------------------
     index = core.index_worlds(core.AP_DEFAULT)
     if index:

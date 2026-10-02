@@ -77,6 +77,7 @@ python aplobby.py seeds                           list seeds you can host
 python aplobby.py host                            host a seed on this machine
 python links.py --lobby-first                     upstreams, your games first
 python links.py --missing                         clients nobody has investigated
+python links.py --resources                       base ROMs you supply yourself
 ```
 
 `generate` exits 0 on success, 1 if preflight failed, 2 if generation failed,

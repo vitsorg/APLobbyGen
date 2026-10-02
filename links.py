@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -137,6 +138,47 @@ def urls(info: dict) -> list[tuple[str, str]]:
     return out
 
 
+def host_roms(ap_dir: str) -> dict:
+    """{slug: rom filename} from host.yaml, for worlds that patch a base ROM.
+
+    A deliberately narrow parse rather than a YAML dependency: we only want
+    `<slug>_options:` blocks that contain a `rom_file:` line, which is a stable
+    shape in Archipelago's own default host.yaml.
+
+    host.yaml is the authority here, so this is read live instead of being
+    copied into registry.json where it would rot.
+    """
+    try:
+        text = open(os.path.join(ap_dir, "host.yaml"), encoding="utf-8",
+                    errors="replace").read()
+    except OSError:
+        return {}
+    out = {}
+    block = re.compile(r"^(\w+)_options:\n((?:[ \t]+.*\n|\n)*)", re.M)
+    rom_line = re.compile(r'^\s+rom_file:\s*"?([^"\n]+?)"?\s*$', re.M)
+    for slug, body in block.findall(text):
+        m = rom_line.search(body)
+        if m:
+            out[slug] = m.group(1).strip()
+    return out
+
+
+def rom_status(slug: str, roms: dict, ap_dir: str) -> dict | None:
+    """Does this world need a base ROM, and is it where Archipelago looks?
+
+    The answer matters only for the person PLAYING that game - generating and
+    hosting never need a ROM - so the caller decides whether to show it.
+    """
+    rom = roms.get(slug)
+    if not rom:
+        return None
+    for folder in (ap_dir, os.path.join(ap_dir, "roms")):
+        path = os.path.join(folder, rom)
+        if os.path.isfile(path):
+            return {"rom": rom, "found": path}
+    return {"rom": rom, "found": None}
+
+
 def unknown_slugs(index: dict, registry: dict) -> list[str]:
     """Installed worlds nobody has investigated a client for.
 
@@ -196,6 +238,8 @@ def main(argv=None) -> int:
                     help="only worlds whose client nobody has investigated")
     ap.add_argument("--candidates", action="store_true",
                     help="GitHub repos each world names inside itself")
+    ap.add_argument("--resources", action="store_true",
+                    help="base ROMs these worlds patch, and whether you have them")
     ap.add_argument("--lobby-first", action="store_true",
                     help="list the games this lobby is playing before the rest")
     args = ap.parse_args(argv)
@@ -211,6 +255,29 @@ def main(argv=None) -> int:
     if playing:
         rows.sort(key=lambda kv: (kv[1]["file"][: -len(".apworld")] not in playing,
                                   kv[1]["file"]))
+    if args.resources:
+        roms = host_roms(args.ap)
+        shown = [kv for kv in rows if kv[1]["file"][: -len(".apworld")] in roms]
+        if playing:
+            shown = [kv for kv in shown
+                     if kv[1]["file"][: -len(".apworld")] in playing] or shown
+        print(f"{len(shown)} installed world(s) patch a base ROM you supply "
+              "yourself.")
+        print("A ROM is needed only to PLAY that game - generating and hosting "
+              "never touch one.\n")
+        for game, hit in shown:
+            slug = hit["file"][: -len(".apworld")]
+            st = rom_status(slug, roms, args.ap)
+            mark = "have" if st["found"] else "MISSING"
+            print(f"  {mark:8} {slug:16} {st['rom']}")
+        sni = os.path.join(args.ap, "SNI", "sni.exe")
+        print()
+        print(f"  {'have' if os.path.isfile(sni) else 'MISSING':8} SNI"
+              f"              {sni}")
+        print("  SNI drives Snes9x-rr, BizHawk (Lua bridge) or RetroArch with the "
+              "bsnes-mercury core.")
+        return 0
+
     if args.missing:
         todo = unknown_slugs(index, registry)
         if playing:

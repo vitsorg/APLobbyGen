@@ -460,10 +460,13 @@ class App(ttk.Frame):
         rows = [dict(e) for e in lb.entries]
         index, _used, _missing = core.preflight(rows, ap)
         registry = links.load()
+        roms = links.host_roms(ap)          # read once, not once per player
         for r in rows:
             hit = index.get(r.get("game"))
             r["version"] = self._version_for(hit, registry["anchors"]) if hit else None
             r["links"] = links.for_row(r, registry)
+            slug = (r.get("world") or "")[: -len(".apworld")]
+            r["rom"] = links.rom_status(slug, roms, ap) if slug else None
         self.index = index
         self.rows = rows
         self.msgs.put(("rows", rows))
@@ -899,6 +902,10 @@ class App(ttk.Frame):
                 self.say(f"  client   none needed - {c.get('note', '')}")
             else:
                 self.say("  client   not investigated - see registry.json")
+            rom = r.get("rom")
+            if rom:
+                where = rom["found"] or "not found - put it beside Archipelago"
+                self.say(f"  rom      {rom['rom']} ({where})")
             opened += [u for _label, u in links.urls(info)]
 
         if not opened:
