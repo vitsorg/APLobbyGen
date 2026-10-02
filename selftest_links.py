@@ -52,10 +52,19 @@ def main() -> int:
     ok("no curated entry claims 'bundled': that state comes from the apworld")
 
     # -- every curated entry carries its evidence ----------------------
-    for slug, entry in reg["clients"].items():
-        assert entry.get("evidence"), f"{slug} has no evidence field"
-        assert entry.get("url") or entry.get("repo"), f"{slug} points nowhere"
-    ok(f"all {len(reg['clients'])} client entries carry evidence and a pointer")
+    for name in ("clients", "trackers"):
+        for slug, entry in reg[name].items():
+            assert entry.get("evidence"), f"{name}/{slug} has no evidence field"
+            assert entry.get("url") or entry.get("repo"), f"{name}/{slug} points nowhere"
+    ok(f"all {len(reg['clients'])} client and {len(reg['trackers'])} tracker "
+       "entries carry evidence and a pointer")
+
+    # A tracker reads the server's data package, so it is independent of the
+    # apworld - the whole reason it is tracked separately from the client.
+    t = links.tracker("earthbound", reg)
+    assert t and t["url"].startswith("https://github.com/"), t
+    assert links.tracker("no-such-game", reg) is None
+    ok(f"tracker lookup: {t['name']} ({t['kind']})")
 
     # -- an anchor's repo never poses as the world's own upstream ------
     anchored = links.world_upstream("sm_map_rando", reg)

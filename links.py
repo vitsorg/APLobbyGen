@@ -51,7 +51,7 @@ def load(path: str | None = None) -> dict:
             blob = json.load(fh)
     except (OSError, ValueError):
         blob = {}
-    for key in ("repos", "clients", "anchors", "no_upstream"):
+    for key in ("repos", "clients", "trackers", "anchors", "no_upstream"):
         blob.setdefault(key, {})
     return blob
 
@@ -107,10 +107,27 @@ def client(slug: str, registry: dict, ships_client_code: bool | None = None) -> 
             "note": "not investigated"}
 
 
+def tracker(slug: str, registry: dict) -> dict | None:
+    """A tracker pack for this game, if one has been recorded.
+
+    A third question, separate from the world file and the client: a tracker
+    usually reads the server's data package rather than the apworld, so it can
+    work for a game whose world the local tooling cannot even import.
+    """
+    entry = registry["trackers"].get(slug)
+    if not entry:
+        return None
+    out = dict(entry)
+    if out.get("repo") and not out.get("url"):
+        out["url"] = _repo_url(out["repo"])
+    return out
+
+
 def for_slug(slug: str, registry: dict, ships_client_code: bool | None = None) -> dict:
     return {"slug": slug,
             "world": world_upstream(slug, registry),
             "client": client(slug, registry, ships_client_code),
+            "tracker": tracker(slug, registry),
             "anchor": registry["anchors"].get(slug)}
 
 
@@ -135,6 +152,9 @@ def urls(info: dict) -> list[tuple[str, str]]:
     c = info.get("client") or {}
     if c.get("url"):
         out.append((c.get("name") or "Client", c["url"]))
+    t = info.get("tracker") or {}
+    if t.get("url"):
+        out.append((t.get("name") or "Tracker", t["url"]))
     return out
 
 
@@ -313,6 +333,10 @@ def main(argv=None) -> int:
             print(f"           {c['url']}")
         if c.get("note") and c["state"] != EXTERNAL:
             print(f"           {c['note']}")
+        t = info.get("tracker")
+        if t:
+            print(f"  tracker  {t['kind']} - {t['name']}")
+            print(f"           {t['url']}")
         if args.candidates:
             for repo in candidates(hit["path"]):
                 print(f"  names    {repo}")

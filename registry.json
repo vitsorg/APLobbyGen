@@ -1,5 +1,5 @@
 {
-  "_comment": "What we know about each installed world beyond its own manifest. 'repos' names an upstream that publishes the world file itself - still only accepted if it actually ships an asset matching the world's filename, so a wrong entry is ignored rather than trusted. 'anchors' records a version the world states about something other than itself: the engine it bundles or pins. An anchor is a comparable identifier, NOT the world's own version - two different builds can share one - so the hash in the lock remains the only exact identity. 'no_upstream' records a world confirmed to publish no world file on GitHub, so it reports as checked rather than unexamined. 'clients' records what a player installs to PLAY, which is a different question from where the world file comes from: a slug is absent when nobody has investigated it, which is deliberately distinguishable from state 'none'. The 'bundled' state is never stored here - it is derived from whether the installed apworld ships client.py, so it cannot go stale. Every entry carries the evidence it was read from, so a wrong one can be checked rather than trusted.",
+  "_comment": "What we know about each installed world beyond its own manifest. 'repos' names an upstream that publishes the world file itself - still only accepted if it actually ships an asset matching the world's filename, so a wrong entry is ignored rather than trusted. 'anchors' records a version the world states about something other than itself: the engine it bundles or pins. An anchor is a comparable identifier, NOT the world's own version - two different builds can share one - so the hash in the lock remains the only exact identity. 'no_upstream' records a world confirmed to publish no world file on GitHub, so it reports as checked rather than unexamined. 'clients' records what a player installs to PLAY, which is a different question from where the world file comes from: a slug is absent when nobody has investigated it, which is deliberately distinguishable from state 'none'. The 'bundled' state is never stored here - it is derived from whether the installed apworld ships client.py, so it cannot go stale. Every entry carries the evidence it was read from, so a wrong one can be checked rather than trusted. 'trackers' records a tracker pack or app for a game - a third question again, separate from the world file and the client.",
   "repos": {
     "spire2": "dlueben1/Slay-the-Spire-2-Archipelago",
     "residentevil2remake": "FuzzyGamesOn/RE2R_AP_World",
@@ -79,6 +79,33 @@
       ],
       "evidence": "Thunderstore package by Automagic links this GitHub repo as its source; the repo's 0.4.4 release (2026-09-28) publishes both Archipelago_Randomizer_for_REPO.zip and repo.apworld",
       "note": "install through a Thunderstore mod manager rather than by hand where possible - it resolves BepInEx, MenuLib and REPOLib for you. The apworld the world's own docs point at is BepInEx, which is the loader, not this mod: that is why this entry was unknown until it was looked up."
+    }
+  },
+  "trackers": {
+    "earthbound": {
+      "state": "external",
+      "kind": "poptracker",
+      "name": "EarthBound AP Tracker",
+      "repo": "PinkSwitch/earthbound_poptracker",
+      "asset": "earthbound_maptracker_4.2.3.zip",
+      "version": "ebpoptracker1.0",
+      "requires": [
+        "PopTracker (black-sliver/PopTracker)"
+      ],
+      "auto_tracking": true,
+      "evidence": "the pack's manifest.json declares package_uid earthbound_ap, game_name EarthBound, and a var_maptracker variant carrying the \"ap\" flag, which is what makes PopTracker offer an Archipelago connection",
+      "note": "two variants: Map Tracker (AP auto-tracking) and Items Only (manual). Drop the release zip into PopTracker's packs folder. This reads the server's data package over the AP connection, so it does NOT need the apworld and is unaffected by the compiled-module problem that stops the logic bridge from importing earthbound.apworld."
+    },
+    "cyberpunk2077": {
+      "state": "external",
+      "kind": "poptracker",
+      "name": "Cyberpunk 2077 PopTracker pack",
+      "repo": "247Tossing/cyberpunk_archipelago",
+      "asset": "cyberpunk2077_poptracker_*.zip",
+      "requires": [
+        "PopTracker (black-sliver/PopTracker)"
+      ],
+      "evidence": "shipped as an asset of the same 0.7.3 release that publishes the apworld and the game mod"
     }
   },
   "anchors": {

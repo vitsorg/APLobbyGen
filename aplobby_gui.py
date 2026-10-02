@@ -910,6 +910,9 @@ class App(ttk.Frame):
                 self.say(f"  client   none needed - {c.get('note', '')}")
             else:
                 self.say("  client   not investigated - see registry.json")
+            t = info.get("tracker")
+            if t:
+                self.say(f"  tracker  {t.get('name')} ({t.get('kind')}) - {t.get('url')}")
             rom = r.get("rom")
             if rom:
                 where = rom["found"] or "not found - put it beside Archipelago"
