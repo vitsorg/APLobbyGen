@@ -11,7 +11,8 @@
     "outer_wilds": "Ixrec/OuterWildsArchipelagoRandomizer",
     "everhood_2": "DeamonHunter/ArchipelagoEverhood2",
     "oribf": "c-ostic/OriBFArchipelago",
-    "cyberpunk2077": "247Tossing/cyberpunk_archipelago"
+    "cyberpunk2077": "247Tossing/cyberpunk_archipelago",
+    "repo": "Automagic00/R.E.P.O.-Archipelago-Client-Mod"
   },
   "clients": {
     "pseudoregalia": {
@@ -63,6 +64,21 @@
       ],
       "evidence": "the same repo's 0.7.3 release (2026-09-25) publishes BOTH the mod zip and cyberpunk2077.apworld; the installed apworld is byte-identical to that release asset (sha256 c1b87cae1a4fb599...)",
       "note": "extract the zip into the Cyberpunk 2077 root folder, which should then contain r6, bin and Red4EXT. The release also ships a PopTracker pack. The apworld's own archipelago.json still declares world_version 0.7.0 while the release is tagged 0.7.3, so the declared version cannot be used to tell whether this world is current - compare the file hash against the release asset instead. The README says nothing about using an existing save, reconnecting, or re-sending completed checks: that is still unverified."
+    },
+    "repo": {
+      "state": "external",
+      "kind": "modmanager",
+      "name": "Archipelago Randomizer for REPO",
+      "url": "https://thunderstore.io/c/repo/p/Automagic/Archipelago_Randomizer_for_REPO/",
+      "repo": "Automagic00/R.E.P.O.-Archipelago-Client-Mod",
+      "version": "0.4.4",
+      "requires": [
+        "BepInEx 5.4.21",
+        "MenuLib",
+        "REPOLib"
+      ],
+      "evidence": "Thunderstore package by Automagic links this GitHub repo as its source; the repo's 0.4.4 release (2026-09-28) publishes both Archipelago_Randomizer_for_REPO.zip and repo.apworld",
+      "note": "install through a Thunderstore mod manager rather than by hand where possible - it resolves BepInEx, MenuLib and REPOLib for you. The apworld the world's own docs point at is BepInEx, which is the loader, not this mod: that is why this entry was unknown until it was looked up."
     }
   },
   "anchors": {

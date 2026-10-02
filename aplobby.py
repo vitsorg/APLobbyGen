@@ -133,7 +133,11 @@ def world_game(data: bytes):
     except zipfile.BadZipFile:
         return None, False
     names = z.namelist()
-    client = any(n.lower().endswith("/client.py") for n in names)
+    # .pyc as well as .py: plenty of worlds ship only compiled modules, and a
+    # world with Client.pyc ships client code just as surely as one with
+    # client.py - missing it means not warning players that their apworld has
+    # to match everyone else's byte for byte.
+    client = any(n.lower().endswith(("/client.py", "/client.pyc")) for n in names)
     manifest = next((n for n in names if n.endswith("archipelago.json")), None)
     if manifest:
         try:

@@ -84,6 +84,24 @@ def main() -> int:
     assert missing["client"]["state"] == links.UNKNOWN and missing["world"] is None
     ok("a row with no installed world offers nothing rather than guessing")
 
+    # -- client code detection, compiled or not ------------------------
+    import io, zipfile
+    def fake_world(member: str) -> bytes:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("w/archipelago.json", json.dumps({"game": "Test Game"}))
+            zf.writestr(member, b"x")
+        return buf.getvalue()
+
+    for member, expect, why in (("w/client.py", True, "source client"),
+                                ("w/Client.pyc", True, "compiled client"),
+                                ("w/CLIENT.PY", True, "shouty client"),
+                                ("w/regions.py", False, "no client at all")):
+        game, ships = core.world_game(fake_world(member))
+        assert game == "Test Game", game
+        assert ships is expect, f"{why}: got {ships}, wanted {expect}"
+    ok("client code is detected as .py or .pyc, any case - a compiled client counts")
+
     # -- against the real install --------------------------------------
     index = core.index_worlds(core.AP_DEFAULT)
     if index:
