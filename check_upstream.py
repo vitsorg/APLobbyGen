@@ -20,6 +20,7 @@ Exit codes: 0 everything current or unknown, 3 at least one world is behind.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import os
@@ -67,10 +68,11 @@ def read_world(path: str):
     """(slug, manifest, github repos mentioned inside)."""
     slug = os.path.basename(path)[: -len(".apworld")]
     data = open(path, "rb").read()
+    digest = hashlib.sha256(data).hexdigest()
     try:
         z = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile:
-        return slug, {}, [], len(data)
+        return slug, {}, [], len(data), digest
     names = z.namelist()
     manifest = {}
     j = next((n for n in names if n.endswith("archipelago.json")), None)
@@ -103,7 +105,7 @@ def read_world(path: str):
             continue
         seen.add(key)
         repos.append(f"{owner}/{repo}")
-    return slug, manifest, repos, len(data)
+    return slug, manifest, repos, len(data), digest
 
 
 def upstream_release(repo: str, slug: str):
@@ -133,7 +135,12 @@ def upstream_release(repo: str, slug: str):
             ver = version_tuple(stem[len(slug):]) or version_tuple(rel["tag_name"])
             cand = {"repo": repo, "tag": rel["tag_name"], "version": ver,
                     "asset": name, "url": asset["browser_download_url"],
-                    "published": (rel.get("published_at") or "")[:10]}
+                    "published": (rel.get("published_at") or "")[:10],
+                    # GitHub publishes a per-asset sha256. Comparing files beats
+                    # comparing version strings, which disagree all the time -
+                    # an apworld can declare 0.7.0 inside a release tagged 0.7.3.
+                    "sha256": (asset.get("digest") or "").replace("sha256:", ""),
+                    "bytes": asset.get("size")}
             if best is None or (ver or ()) > (best["version"] or ()):
                 best = cand
     return best
@@ -180,7 +187,7 @@ def main() -> int:
     behind, unknown, current, known_none = [], [], [], []
 
     for path in files:
-        slug, manifest, repos, size = read_world(path)
+        slug, manifest, repos, size, installed_sha = read_world(path)
         have = manifest.get("world_version")
         have_t = version_tuple(have)
         game = manifest.get("game") or "?"
@@ -221,8 +228,15 @@ def main() -> int:
             show_anchor()
             continue
 
-        newer = bool(found["version"] and have_t and found["version"] > have_t)
-        if newer:
+        identical = bool(found.get("sha256")) and found["sha256"] == installed_sha
+        newer = (not identical) and bool(
+            found["version"] and have_t and found["version"] > have_t)
+        if identical:
+            current.append(slug)
+            print(f"  ok {slug:22} {str(have or '-'):12} {'identical file':16} "
+                  f"{found['repo']} ({found['tag']})")
+            show_anchor()
+        elif newer:
             behind.append((slug, have, found))
             print(f"  !  {slug:22} {str(have or '-'):12} -> {found['tag']:16} "
                   f"{found['published']}  {found['repo']}")

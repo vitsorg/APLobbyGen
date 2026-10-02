@@ -10,7 +10,8 @@
     "pseudoregalia": "pseudoregalia-modding/pseudoregalia-archipelago",
     "outer_wilds": "Ixrec/OuterWildsArchipelagoRandomizer",
     "everhood_2": "DeamonHunter/ArchipelagoEverhood2",
-    "oribf": "c-ostic/OriBFArchipelago"
+    "oribf": "c-ostic/OriBFArchipelago",
+    "cyberpunk2077": "247Tossing/cyberpunk_archipelago"
   },
   "clients": {
     "pseudoregalia": {
@@ -43,6 +44,25 @@
       "url": "https://tommadness.github.io/KH2Randomizer/setup/Panacea-ModLoader/",
       "evidence": "the world's docs send players to this guide for the required mod loader",
       "note": "the AP client itself (ArchipelagoKH2Client) ships with Archipelago; this guide covers the game-side setup"
+    },
+    "cyberpunk2077": {
+      "state": "external",
+      "kind": "github",
+      "name": "Cyberpunk Archipelago Mod",
+      "repo": "247Tossing/cyberpunk_archipelago",
+      "asset": "CyberpunkArchipelagoMod_*.zip",
+      "version": "0.7.3",
+      "requires": [
+        "RedScript 0.5.31+",
+        "RED4ext",
+        "TweakXL",
+        "ArchiveXL",
+        "Cyber Engine Tweaks",
+        "Codeware",
+        "Phone Extension"
+      ],
+      "evidence": "the same repo's 0.7.3 release (2026-09-25) publishes BOTH the mod zip and cyberpunk2077.apworld; the installed apworld is byte-identical to that release asset (sha256 c1b87cae1a4fb599...)",
+      "note": "extract the zip into the Cyberpunk 2077 root folder, which should then contain r6, bin and Red4EXT. The release also ships a PopTracker pack. The apworld's own archipelago.json still declares world_version 0.7.0 while the release is tagged 0.7.3, so the declared version cannot be used to tell whether this world is current - compare the file hash against the release asset instead. The README says nothing about using an existing save, reconnecting, or re-sending completed checks: that is still unverified."
     }
   },
   "anchors": {
