@@ -32,6 +32,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_BRIDGE = r"C:\Projects\ArchipelagoRaceTracker\bridge"
 DEFAULT_HTTP_PORT = 8081
 SCRIPT = "bridge_server.py"
+# Checked in order; the first that exists wins.
+VENVS = ("venv313", "venv")
 
 
 class TrackerError(Exception):
@@ -49,10 +51,16 @@ def find_bridge(root: str | None = None) -> tuple[str, str]:
     script = os.path.join(root, SCRIPT)
     if not os.path.isfile(script):
         raise TrackerError(f"no {SCRIPT} under {root}")
-    venv = os.path.join(root, "venv", "Scripts", "python.exe")
-    if not os.path.isfile(venv):
-        raise TrackerError(f"the bridge has no venv at {venv} - create it first")
-    return venv, script
+    # Newest interpreter first. Several apworlds ship only .pyc compiled by the
+    # Archipelago install's own Python, and a venv on an older version cannot
+    # import those at all - so a 3.13 venv beside the original 3.12 one is
+    # strictly more capable, and is preferred when it exists.
+    for name in VENVS:
+        venv = os.path.join(root, name, "Scripts", "python.exe")
+        if os.path.isfile(venv):
+            return venv, script
+    raise TrackerError(f"the bridge has no venv under {root} "
+                       f"(looked for {', '.join(VENVS)}) - create one first")
 
 
 def slots_from_lock(run_dir: str) -> list[str]:
