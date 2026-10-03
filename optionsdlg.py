@@ -26,6 +26,7 @@ class OptionsDialog(tk.Toplevel):
         self.spec = opts.parse(game, ap_dir)
         self.vars: dict = {}
         self.kinds = {o["key"]: o["kind"] for o in self.spec}
+        self.by_key = {o["key"]: o for o in self.spec}
 
         self.geometry("760x640")
         self.columnconfigure(0, weight=1)
@@ -88,21 +89,25 @@ class OptionsDialog(tk.Toplevel):
             value = current.get(o["key"], o["default"])
             ttk.Label(body, text=o["key"]).grid(row=row, column=0, sticky="w", padx=(0, 10))
 
-            if o["kind"] == opts.BOOL:
-                var = tk.BooleanVar(value=bool(value) if not isinstance(value, str)
-                                    else value == "true")
-                ttk.Checkbutton(body, variable=var).grid(row=row, column=1, sticky="w")
-            elif o["kind"] == opts.RANGE:
-                var = tk.StringVar(value=str(value))
-                ttk.Spinbox(body, textvariable=var, width=10,
-                            from_=o["min"], to=o["max"]).grid(row=row, column=1, sticky="w")
-            else:
-                var = tk.StringVar(value=str(value))
-                choices = [str(v) for v in o["values"]]
-                if str(value) not in choices:          # a value the template lost
-                    choices = [str(value)] + choices
-                ttk.Combobox(body, textvariable=var, values=choices, width=28,
-                             state="readonly").grid(row=row, column=1, sticky="w")
+            # Every kind is a combobox, including toggles. A checkbox cannot
+            # hold "random" - and silently turning a config's "random" into
+            # true/false would throw away what the player actually asked for.
+            # A range stays editable so any number in its span can be typed.
+            shown = self._as_text(o, value)
+            var = tk.StringVar(value=shown)
+            choices = [self._as_text(o, v) for v in o["values"]] + list(o.get("rolls", []))
+            if o["kind"] == opts.RANGE:
+                for edge in (o["min"], o["max"]):
+                    if edge is not None and str(edge) not in choices:
+                        choices.insert(0, str(edge))
+            if shown not in choices:                   # whatever the config had
+                choices.insert(0, shown)
+            box = ttk.Combobox(body, textvariable=var, values=choices, width=28,
+                               state="normal" if o["kind"] == opts.RANGE else "readonly")
+            box.grid(row=row, column=1, sticky="w")
+            if o["kind"] == opts.RANGE:
+                ttk.Label(body, text=f"  {o['min']}..{o['max']}",
+                          style="Muted.TLabel").grid(row=row, column=2, sticky="w")
             self.vars[o["key"]] = var
             row += 1
 
@@ -115,22 +120,42 @@ class OptionsDialog(tk.Toplevel):
 
     def reset(self):
         for o in self.spec:
-            var = self.vars[o["key"]]
-            if o["kind"] == opts.BOOL:
-                var.set(bool(o["default"]))
-            else:
-                var.set(str(o["default"]))
+            self.vars[o["key"]].set(self._as_text(o, o["default"]))
+
+    @staticmethod
+    def _as_text(o: dict, value) -> str:
+        """How a stored value should read in the box."""
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        return str(value)
 
     def collect(self) -> dict:
         out = {}
         for key, var in self.vars.items():
-            value = var.get()
-            if self.kinds[key] == opts.RANGE:
+            spec = self.by_key[key]
+            text = var.get().strip()
+            if text in spec.get("rolls", []):      # random, random-low, ...
+                out[key] = text
+                continue
+            if spec["kind"] == opts.BOOL:
+                out[key] = text == "true"
+                continue
+            if spec["kind"] == opts.RANGE:
+                if text in spec.get("aliases", {}):        # "normal" -> 50
+                    out[key] = spec["aliases"][text]
+                    continue
                 try:
-                    value = int(value)
+                    number = int(text)
                 except (TypeError, ValueError):
-                    raise ValueError(f"{key}: {value!r} is not a number")
-            out[key] = value
+                    raise ValueError(
+                        f"{key}: {text!r} is not a number. Use {spec['min']}-"
+                        f"{spec['max']}, or one of {', '.join(spec['rolls'])}.")
+                if not (spec["min"] <= number <= spec["max"]):
+                    raise ValueError(f"{key}: {number} is outside "
+                                     f"{spec['min']}..{spec['max']}")
+                out[key] = number
+                continue
+            out[key] = text
         return out
 
     def save(self):

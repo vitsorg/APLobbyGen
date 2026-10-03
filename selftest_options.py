@@ -92,6 +92,10 @@ def main() -> int:
             "giygas_required": True, "sanctuaries_required": 7}
         ok("and the new values read back exactly")
 
+        rnd = opts.write_config(cfg, "EarthBound", {"starting_character": "random"})
+        assert opts.read_config(rnd, "EarthBound")["starting_character"] == "random"
+        ok("'random' round-trips through the config writer as a plain value")
+
         bom = opts.BOM + cfg
         assert opts.write_config(bom, "EarthBound", {"giygas_required": True}
                                  ).startswith(opts.BOM)
@@ -120,6 +124,35 @@ def main() -> int:
             dlg.reset()
             assert dlg.vars["sanctuaries_required"].get() == "4"
             ok("reset restores the template defaults")
+
+            # The exact bug the form shipped with: a config carrying a named
+            # alias loaded into a numeric widget and refused to save.
+            dlg2 = optionsdlg.OptionsDialog(root, "EarthBound",
+                                            {"progression_balancing": "normal"},
+                                            core.AP_DEFAULT)
+            root.update()
+            assert dlg2.collect()["progression_balancing"] == 50
+            ok("a config set to a named alias ('normal') saves as its number")
+
+            # random is valid for every option; the template only lists it for
+            # ranges, so it has to be offered rather than parroted.
+            sc = dlg2.by_key["starting_character"]
+            assert "random" in sc["rolls"], sc
+            dlg2.vars["starting_character"].set("random")
+            dlg2.vars["giygas_required"].set("random")
+            got2 = dlg2.collect()
+            assert got2["starting_character"] == "random", got2["starting_character"]
+            assert got2["giygas_required"] == "random", got2["giygas_required"]
+            ok("random is selectable for a choice AND a toggle, and survives saving")
+
+            dlg2.vars["sanctuaries_required"].set("99")
+            try:
+                dlg2.collect()
+                raise AssertionError("a range accepted a value outside its bounds")
+            except ValueError as exc:
+                assert "outside" in str(exc), exc
+            ok("a range refuses a number outside its own bounds")
+            dlg2.destroy()
 
             dlg.vars["sanctuaries_required"].set("not a number")
             try:

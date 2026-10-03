@@ -78,6 +78,7 @@ def parse(game: str, ap_dir: str) -> list[dict]:
     def flush():
         if key is None:
             return
+        raw_keys = set(values)
         named = {k: v for k, v in values.items() if not RANDOM_KEYS.match(k)}
         blob = "\n".join(doc)
         lo = re.search(r"Minimum value is (-?\d+)", blob)
@@ -90,6 +91,14 @@ def parse(game: str, ap_dir: str) -> list[dict]:
         else:
             kind = CHOICE
         best = max(named.items(), key=lambda kv: kv[1], default=(None, 0))[0]
+        # "random" is accepted for EVERY option - Archipelago's Toggle.from_text
+        # and Choice.from_text both special-case it - but the template only
+        # enumerates it for ranges. Filtering it out hid a real setting: there
+        # was no way to ask for a random starting character.
+        value_list = [_coerce(k) for k in named]
+        rolls = [k for k in sorted(raw_keys) if RANDOM_KEYS.match(k)]
+        if kind in (BOOL, CHOICE) and "random" not in rolls:
+            rolls = ["random"] + rolls
         default = _coerce(best) if best is not None else None
         # A range option may default to a named alias ("normal"); a numeric
         # editor needs the number the name stands for.
@@ -98,7 +107,8 @@ def parse(game: str, ap_dir: str) -> list[dict]:
         out.append({
             "key": key, "section": key_section, "doc": blob.strip(),
             "kind": kind,
-            "values": [_coerce(k) for k in named],
+            "values": value_list,
+            "rolls": rolls,
             "default": default,
             "aliases": dict(aliases),
             "min": int(lo.group(1)) if lo else None,
