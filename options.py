@@ -84,7 +84,14 @@ def parse(game: str, ap_dir: str) -> list[dict]:
         # with values to pick from. Plando, local_items, start_inventory. These
         # are NOT editable here, and emitting a scalar for one produced
         # "local_items: None", which fails generation outright.
-        if collection or not values:
+        # A generated template gives a Choice exactly ONE non-zero weight: its
+        # default. More than one means this is a weight TABLE whose keys are all
+        # used together - trap_weights, filler_item_weights, Factorio's world_gen,
+        # KH2's CustomItemPoolQuantity. Collapsing one of those to its highest
+        # entry would quietly rewrite the item pool, so they are left alone too.
+        weight_table = len([v for k, v in values.items()
+                            if v and not k.startswith("#")]) > 1
+        if collection or weight_table or not values:
             out.append({"key": key, "section": key_section,
                         "doc": "\n".join(doc).strip(),
                         "kind": COLLECTION, "editable": False, "values": [], "rolls": [],
@@ -155,6 +162,8 @@ def parse(game: str, ap_dir: str) -> list[dict]:
         m = re.match(r"^\s+(.+?):\s*(\d+)(.*)$", raw)   # "value: weight  # note"
         if m:
             name = m.group(1).strip().strip("'\"")
+            if name.startswith("#"):          # a commented-out hint, not a value
+                continue
             values[name] = int(m.group(2))
             eq = re.search(r"equivalent to (-?\d+)", m.group(3) or "")
             if eq:
