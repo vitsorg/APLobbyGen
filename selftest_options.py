@@ -78,6 +78,22 @@ def main() -> int:
     assert not bad, bad[:5]
     ok(f"all {len(games)} templates parse without special-casing a single game")
 
+    # -- a weight table is not a choice --------------------------------
+    # R.E.P.O's filler_item_weights is sixteen items each with a weight, all of
+    # them used. Read as a choice it collapsed to its highest entry, and the
+    # generator rejected the result: "Cannot Convert from non-dictionary, got
+    # <class 'str'>". A generated template gives a real choice exactly ONE
+    # non-zero weight, so more than one means a table.
+    if "R.E.P.O" in games:
+        repo = {o["key"]: o for o in opts.parse("R.E.P.O", core.AP_DEFAULT)}
+        fw = repo.get("filler_item_weights")
+        assert fw is not None, sorted(repo)
+        assert fw["kind"] == opts.COLLECTION and not fw["editable"], fw
+        assert fw["default"] is None, fw
+        ok("a weight table is left alone, not collapsed to its top entry")
+        assert repo["pellys_required"]["editable"], repo["pellys_required"]
+        ok("a real range beside it is still editable")
+
     # -- read / write a config ----------------------------------------
     tmp = tempfile.mkdtemp(prefix="opttest-")
     try:
