@@ -215,6 +215,20 @@ def main() -> int:
                 assert app.host_addr.get() == "not hosting"
                 ok("Stop hosting really stops it and the bar resets")
 
+            # -- the window icon --------------------------------------------
+            icon = os.path.join(HERE, "icon.ico")
+            assert os.path.isfile(icon), "icon.ico is missing"
+            assert aplobby_gui.set_icon(root), "the icon was not accepted by Tk"
+            ok(f"icon.ico applied to the window ({os.path.getsize(icon):,} bytes)")
+            # It must carry the small sizes, or Windows scales 256px down for
+            # the taskbar and it turns to mush.
+            with open(icon, "rb") as fh:
+                head = fh.read(6 + 16 * 16)
+            count = int.from_bytes(head[4:6], "little")
+            widths = {head[6 + i * 16] or 256 for i in range(count)}
+            assert {16, 32} <= widths, widths
+            ok(f"it carries {count} sizes including 16 and 32: {sorted(widths)}")
+
             # -- the tracker launcher ---------------------------------------
             import tracker as trk
             try:

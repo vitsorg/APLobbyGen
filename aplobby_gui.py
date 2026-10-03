@@ -1223,11 +1223,29 @@ class App(ttk.Frame):
         self.msgs.put(("status", "Seed path copied to the clipboard."))
 
 
+def set_icon(window) -> bool:
+    """Replace Python's default feather with this app's own mark.
+
+    `default=` applies to every window this process opens, including the
+    settings form and the dialogs, so it is set once. Failing is not worth an
+    error: a missing or unreadable icon costs nothing but the stock one.
+    """
+    path = os.path.join(HERE, "icon.ico")
+    if not os.path.isfile(path):
+        return False
+    try:
+        window.iconbitmap(default=path)
+        return True
+    except tk.TclError:
+        return False
+
+
 def main():
     root = tk.Tk()
     root.title("Archipelago Lobby Generator")
     root.geometry("1040x780")
     root.minsize(820, 580)
+    set_icon(root)
     App(root)          # App.__init__ applies the saved theme to root
     root.mainloop()
 

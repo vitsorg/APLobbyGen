@@ -61,7 +61,8 @@ Generation touches the network exactly never.
   selected seed, with the server console right there. Nothing is uploaded.
 - **Publishing, when you want it.** Uploading to archipelago.gg is a separate,
   deliberate step that hands back the links rather than opening a room for you.
-- **Light and dark.** Follows the Windows setting by default.
+- **Light and dark.** Follows the Windows setting by default, with its own
+  window icon so it is findable in a crowded taskbar.
 
 ## Requirements
 
