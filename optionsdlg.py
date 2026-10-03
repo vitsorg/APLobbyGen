@@ -23,7 +23,13 @@ class OptionsDialog(tk.Toplevel):
         self.result: dict | None = None
         self.game = game
 
-        self.spec = opts.parse(game, ap_dir)
+        full = opts.parse(game, ap_dir)
+        # Lists and mappings - plando, start_inventory, exclude_locations - are
+        # not settings with values to pick from. Offering them produced
+        # "local_items: None", which fails generation outright. They are listed
+        # as read-only at the end so nobody wonders where they went.
+        self.spec = [o for o in full if o.get("editable")]
+        self.untouched = [o for o in full if not o.get("editable")]
         self.vars: dict = {}
         self.kinds = {o["key"]: o["kind"] for o in self.spec}
         self.by_key = {o["key"]: o for o in self.spec}
@@ -39,6 +45,10 @@ class OptionsDialog(tk.Toplevel):
         ttk.Label(head, style="Muted.TLabel",
                   text="   read from Archipelago's own template for this world"
                   ).pack(side="left")
+        if self.untouched:
+            ttk.Label(head, style="Muted.TLabel",
+                      text=f"   {len(self.untouched)} list option(s) left as they are"
+                      ).pack(side="left")
 
         # A canvas, because 71 options do not fit on a screen.
         wrap = ttk.Frame(self)
@@ -64,6 +74,14 @@ class OptionsDialog(tk.Toplevel):
             pass
 
         self._build_rows(body, current)
+        if self.untouched:
+            ttk.Label(body, text="EDITED BY HAND ONLY", font=("", 8, "bold"),
+                      style="Muted.TLabel").grid(column=0, columnspan=2,
+                                                 sticky="w", pady=(16, 2))
+            ttk.Label(body, style="Muted.TLabel", justify="left", wraplength=620,
+                      text=", ".join(o["key"] for o in self.untouched) +
+                      "\n- lists and mappings; this form leaves whatever the "
+                      "config already has").grid(column=0, columnspan=2, sticky="w")
 
         feet = ttk.Frame(self, padding=12)
         feet.grid(row=2, column=0, sticky="ew")

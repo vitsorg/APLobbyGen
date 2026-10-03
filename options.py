@@ -23,7 +23,7 @@ import os
 import re
 import sys
 
-BOOL, RANGE, CHOICE = "bool", "range", "choice"
+BOOL, RANGE, CHOICE, COLLECTION = "bool", "range", "choice", "collection"
 BOM = b"\xef\xbb\xbf"          # Windows editors add it; round-trip it faithfully
 
 # Weighted keys the template adds to every option; they are rolls, not values.
@@ -72,6 +72,7 @@ def parse(game: str, ap_dir: str) -> list[dict]:
     body = text[head.end():] if head else text
 
     out, section, doc, key, values = [], None, [], None, {}
+    collection = False
     aliases: dict = {}       # "normal" -> 50, from "# equivalent to 50"
     key_section = None       # the heading in force when THIS option started
 
@@ -79,6 +80,16 @@ def parse(game: str, ap_dir: str) -> list[dict]:
         if key is None:
             return
         raw_keys = set(values)
+        # [] or {} in the template: a list of items or a mapping, not a setting
+        # with values to pick from. Plando, local_items, start_inventory. These
+        # are NOT editable here, and emitting a scalar for one produced
+        # "local_items: None", which fails generation outright.
+        if collection or not values:
+            out.append({"key": key, "section": key_section,
+                        "doc": "\n".join(doc).strip(),
+                        "kind": COLLECTION, "editable": False, "values": [], "rolls": [],
+                        "default": None, "min": None, "max": None, "aliases": {}})
+            return
         named = {k: v for k, v in values.items() if not RANDOM_KEYS.match(k)}
         blob = "\n".join(doc)
         lo = re.search(r"Minimum value is (-?\d+)", blob)
@@ -106,6 +117,7 @@ def parse(game: str, ap_dir: str) -> list[dict]:
             default = aliases[default]
         out.append({
             "key": key, "section": key_section, "doc": blob.strip(),
+            "editable": True,
             "kind": kind,
             "values": value_list,
             "rolls": rolls,
@@ -128,6 +140,7 @@ def parse(game: str, ap_dir: str) -> list[dict]:
         if m:
             flush()
             key, doc, values, aliases = m.group(1), [], {}, {}
+            collection = False
             key_section = section
             continue
         if key is None:
@@ -135,6 +148,9 @@ def parse(game: str, ap_dir: str) -> list[dict]:
         m = re.match(r"^\s+#\s?(.*)$", raw)         # that option's documentation
         if m:
             doc.append(m.group(1).rstrip())
+            continue
+        if raw.strip() in ("[]", "{}"):
+            collection = True
             continue
         m = re.match(r"^\s+(.+?):\s*(\d+)(.*)$", raw)   # "value: weight  # note"
         if m:
@@ -177,32 +193,66 @@ def read_config(data: bytes, game: str) -> dict:
     return out
 
 
-def write_config(data: bytes, game: str, values: dict) -> bytes:
-    """Return the config with the game block replaced by these values.
+def _scalar(value) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
 
-    Everything outside the block - name, description, requires, other games -
-    is passed through untouched, because this edits one game's settings and
-    should not rewrite a file it does not fully understand.
+
+def write_config(data: bytes, game: str, values: dict) -> bytes:
+    """Return the config with ONLY these options changed.
+
+    A merge, not a rewrite. Every line this function does not recognise is
+    copied through: another game's block, comments, and - the reason this
+    matters - options whose value is a list or a mapping, like plando_items,
+    start_inventory or exclude_locations. Replacing the whole block would
+    silently delete all of those the first time someone saved a toggle.
+
+    An option named in `values` loses whatever it had, including a weighted
+    block, because that is what editing it means.
     """
     text = data.decode("utf-8-sig", "replace")
     had_bom = data.startswith(BOM)
-    head = re.search(rf"^{re.escape(game)}:\s*$", text, re.M)
     lines = text.splitlines()
-    block = [f"{game}:"]
-    for key, value in values.items():
-        if isinstance(value, bool):
-            value = "true" if value else "false"
-        block.append(f"  {key}: {value}")
+    head = re.search(rf"^{re.escape(game)}:\s*$", text, re.M)
+    pending = dict(values)
 
     if not head:
-        out = lines + [""] + block
-    else:
-        start = text[: head.start()].count("\n")
-        end = start + 1
-        while end < len(lines) and (not lines[end].strip()
-                                    or lines[end].startswith((" ", "\t"))):
-            end += 1
-        out = lines[:start] + block + lines[end:]
+        out = lines + [f"{game}:"] + [f"  {k}: {_scalar(v)}" for k, v in pending.items()]
+        blob = ("\n".join(out).rstrip("\n") + "\n").encode("utf-8")
+        return (BOM + blob) if had_bom else blob
+
+    start = text[: head.start()].count("\n")
+    end = start + 1
+    while end < len(lines) and (not lines[end].strip()
+                                or lines[end].startswith((" ", "\t"))):
+        end += 1
+
+    body, i = [], start + 1
+    while i < end:
+        line = lines[i]
+        m = re.match(r"^  (\w[\w\d_]*):", line)
+        if m and m.group(1) in pending:
+            key = m.group(1)
+            body.append(f"  {key}: {_scalar(pending.pop(key))}")
+            i += 1
+            # Drop whatever belonged to that key: an inline value is one line,
+            # a weighted block is the indented lines that follow it.
+            while i < end and (lines[i].startswith(("    ", "\t"))
+                               or not lines[i].strip()):
+                if lines[i].strip() and not lines[i].startswith(("    ", "\t")):
+                    break
+                if not lines[i].strip() and i + 1 < end and re.match(r"^  \w", lines[i + 1]):
+                    break
+                i += 1
+            continue
+        body.append(line)
+        i += 1
+
+    for key, value in pending.items():          # options the file did not have
+        body.append(f"  {key}: {_scalar(value)}")
+
+    out = lines[:start] + [lines[start]] + body + lines[end:]
     blob = ("\n".join(out).rstrip("\n") + "\n").encode("utf-8")
     return (BOM + blob) if had_bom else blob
 

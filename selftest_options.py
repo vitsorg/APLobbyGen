@@ -33,9 +33,20 @@ def main() -> int:
     ok(f"EarthBound parses to {len(spec)} options")
 
     kinds = {o["kind"] for o in spec}
-    assert kinds <= {opts.BOOL, opts.RANGE, opts.CHOICE}, kinds
-    assert kinds == {opts.BOOL, opts.RANGE, opts.CHOICE}, f"only saw {kinds}"
+    assert kinds == {opts.BOOL, opts.RANGE, opts.CHOICE, opts.COLLECTION}, kinds
     ok(f"every option is typed as one of {sorted(kinds)}")
+
+    # A list or mapping option ([] / {} in the template) is not a setting with
+    # values to pick from. Writing a scalar for one produced "local_items: None"
+    # and failed generation outright.
+    lists = [o for o in spec if o["kind"] == opts.COLLECTION]
+    assert {"local_items", "start_inventory", "plando_items"} <= {o["key"] for o in lists}
+    assert all(not o["editable"] and o["default"] is None for o in lists), lists[:2]
+    ok(f"{len(lists)} list/mapping options are marked uneditable with no default")
+
+    editable = [o for o in spec if o["editable"]]
+    assert all(o["default"] is not None for o in editable),         [o["key"] for o in editable if o["default"] is None]
+    ok(f"every one of the {len(editable)} editable options has a usable default")
 
     g = by_key["giygas_required"]
     assert g["kind"] == opts.BOOL and g["default"] is True, g
@@ -88,13 +99,38 @@ def main() -> int:
         assert "name: Tester" in text and "description: a config" in text
         assert "requires:" in text and "version: 0.6.6" in text
         ok("writing settings leaves name, description and requires untouched")
-        assert opts.read_config(out, "EarthBound") == {
-            "giygas_required": True, "sanctuaries_required": 7}
-        ok("and the new values read back exactly")
+        back = opts.read_config(out, "EarthBound")
+        assert back["giygas_required"] is True and back["sanctuaries_required"] == 7
+        # A merge, so an option that was there and was NOT edited stays.
+        assert back["progression_balancing"] == "normal", back
+        ok("new values read back exactly, and untouched ones are still there")
 
         rnd = opts.write_config(cfg, "EarthBound", {"starting_character": "random"})
         assert opts.read_config(rnd, "EarthBound")["starting_character"] == "random"
         ok("'random' round-trips through the config writer as a plain value")
+
+        # The merge: anything this form does not understand must survive.
+        rich = "\n".join([
+            "name: Tester",
+            "game: EarthBound",
+            "EarthBound:",
+            "  giygas_required: false",
+            "  local_items: []",
+            "  start_inventory:",
+            "    Bomb: 1",
+            "  sanctuaries_required:",
+            "    4: 50",
+            "    8: 10",
+            "",
+        ]).encode()
+        merged = opts.write_config(rich, "EarthBound",
+                                   {"giygas_required": True,
+                                    "sanctuaries_required": 7}).decode()
+        for keep in ("local_items: []", "start_inventory:", "Bomb: 1"):
+            assert keep in merged, (keep, merged)
+        ok("saving a toggle leaves plando, start_inventory and lists untouched")
+        assert "4: 50" not in merged and "sanctuaries_required: 7" in merged
+        ok("but an option you DID edit loses its old weighted block")
 
         bom = opts.BOM + cfg
         assert opts.write_config(bom, "EarthBound", {"giygas_required": True}
@@ -110,8 +146,12 @@ def main() -> int:
                                            {"sanctuaries_required": 6},
                                            core.AP_DEFAULT)
             root.update()
-            assert len(dlg.vars) == len(spec), (len(dlg.vars), len(spec))
-            ok(f"the form built {len(dlg.vars)} widgets from the template")
+            assert len(dlg.vars) == len(editable), (len(dlg.vars), len(editable))
+            assert len(dlg.untouched) == len(lists)
+            ok(f"the form built {len(dlg.vars)} widgets and skipped "
+               f"{len(dlg.untouched)} list option(s)")
+            assert not any(v is None for v in dlg.collect().values())
+            ok("nothing it would save is None - the bug that failed generation")
             assert dlg.vars["sanctuaries_required"].get() == "6"
             ok("it shows the config's current value, not the template default")
 
