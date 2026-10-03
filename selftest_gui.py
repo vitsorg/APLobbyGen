@@ -229,6 +229,15 @@ def main() -> int:
             assert {16, 32} <= widths, widths
             ok(f"it carries {count} sizes including 16 and 32: {sorted(widths)}")
 
+            # -- the desktop launcher ---------------------------------------
+            import make_shortcut
+            assert os.path.isfile(make_shortcut.TARGET_SCRIPT), "aplobby.pyw is missing"
+            pyw = make_shortcut.pythonw()
+            assert os.path.basename(pyw).lower() == "pythonw.exe", pyw
+            ok(f"the shortcut would launch {os.path.basename(pyw)} (no console window)")
+            assert aplobby_gui.claim_taskbar_identity(), "no AppUserModelID"
+            ok("an AppUserModelID is claimed, so the taskbar shows this app's icon")
+
             # -- the tracker launcher ---------------------------------------
             import tracker as trk
             try:

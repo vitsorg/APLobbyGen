@@ -73,11 +73,22 @@ Generation touches the network exactly never.
 
 ## Getting started
 
-Launch the window:
+Make a desktop shortcut with the app's own icon, then launch it from there:
+
+```
+python make_shortcut.py --start-menu
+```
+
+Or run the window directly:
 
 ```
 python aplobby_gui.py
 ```
+
+The shortcut runs `aplobby.pyw` under `pythonw.exe`, so there is no console
+window behind it. That also means a startup failure has nowhere to print, so
+the launcher writes one to `crash.log` and shows it in a dialog rather than
+vanishing.
 
 Or drive it from the command line:
 

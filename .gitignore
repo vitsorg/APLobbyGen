@@ -32,3 +32,6 @@ venv/
 
 # local UI preference, carries a machine-specific path
 ui.json
+
+# written only when the windowed launcher fails to start
+crash.log

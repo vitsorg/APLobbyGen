@@ -1240,7 +1240,24 @@ def set_icon(window) -> bool:
         return False
 
 
+def claim_taskbar_identity(app_id: str = "vitsorg.APLobbyGen") -> bool:
+    """Tell Windows this is its own application, not "Python".
+
+    Without an explicit AppUserModelID the shell groups the window under the
+    interpreter and shows PYTHON's icon in the taskbar no matter what
+    iconbitmap() says - the icon only reaches the title bar. Harmless to fail;
+    it is cosmetic.
+    """
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+        return True
+    except Exception:
+        return False
+
+
 def main():
+    claim_taskbar_identity()
     root = tk.Tk()
     root.title("Archipelago Lobby Generator")
     root.geometry("1040x780")
