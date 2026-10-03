@@ -23,6 +23,8 @@ from tkinter import ttk, filedialog, messagebox, simpledialog
 import aplobby as core
 import links
 import lobby
+import options as optmod
+import optionsdlg
 import serve
 import sources
 import theme
@@ -233,6 +235,7 @@ class App(ttk.Frame):
         ttk.Button(row, text="Remove from lobby", command=self.remove_selected).pack(side="left")
         ttk.Button(row, text="Where to get it...", command=self.show_links).pack(
             side="left", padx=6)
+        ttk.Button(row, text="Settings...", command=self.edit_options).pack(side="left")
         ttk.Label(row, text="   double-click a row to include or exclude it",
                   style="Muted.TLabel").pack(side="left")
 
@@ -870,6 +873,59 @@ class App(ttk.Frame):
         if chosen:
             self.refresh_seeds(select=os.path.normpath(chosen))
             self.pick_seed()
+
+    # ---------------------------------------------------------- settings
+
+    def edit_options(self):
+        """Edit the selected player's game options as a form.
+
+        The form is generated from Archipelago's own template for that world,
+        so this works for any installed game without a line of per-game code.
+        Saving goes through the lobby's upsert, which keeps the previous
+        version in history like any other change.
+        """
+        picked = [r for r in self.rows if r["slot"] in set(self.tree.selection())]
+        if len(picked) != 1:
+            messagebox.showinfo("Settings", "Select exactly one player.")
+            return
+        row = picked[0]
+        game = row.get("game")
+        if not game:
+            messagebox.showinfo("Settings", "That config declares no game.")
+            return
+
+        ap = self._snapshot()["ap"]
+        try:
+            with lobby.locked(self.lobby_root) as lb:
+                data = open(lb._blob(row["slot"]), "rb").read()
+            current = optmod.read_config(data, game)
+            chosen = optionsdlg.edit(self, game, current, ap)
+        except FileNotFoundError as exc:
+            messagebox.showerror(
+                "Settings",
+                f"{exc}\n\nArchipelago generates these from the installed world; "
+                "run its 'Generate Template Options' and try again.")
+            return
+        except Exception as exc:
+            messagebox.showerror("Settings", f"{type(exc).__name__}: {exc}")
+            return
+        if chosen is None:
+            return
+
+        changed = {k: v for k, v in chosen.items() if current.get(k) != v}
+        if not changed:
+            self.msgs.put(("status", "No settings changed."))
+            return
+        new = optmod.write_config(data, game, chosen)
+        with lobby.locked(self.lobby_root) as lb:
+            action, entry = lb.replace(row["slot"], new,
+                                       {"kind": "settings-form", "id": row["slot"]})
+        self.say(f"\n{row.get('name') or row['slot']}: {len(changed)} setting(s) {action}")
+        for k, v in sorted(changed.items())[:12]:
+            self.say(f"  {k}: {current.get(k, '(default)')} -> {v}")
+        self.msgs.put(("status", f"Saved {len(changed)} setting(s) for "
+                                 f"{row.get('name') or row['slot']}."))
+        self.reload()
 
     # ---------------------------------------------------------- upstreams
 

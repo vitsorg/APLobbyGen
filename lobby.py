@@ -395,6 +395,44 @@ class Lobby:
         self._persist()
         return "updated", entry
 
+    def replace(self, slot: str, data: bytes, source: dict):
+        """Overwrite one known slot's config. Returns (action, entry).
+
+        Editing a slot you already have in front of you must not go through
+        upsert's matching: that resolves identity from the bytes and the name,
+        and an edit changes exactly those. A settings change saved by upsert
+        landed as a NEW player rather than an edit of the one being edited.
+
+        History is kept exactly as upsert keeps it.
+        """
+        entry = self.find(slot)
+        if entry is None:
+            raise LobbyError(f"no such slot: {slot}")
+        digest = core.sha256(data)
+        if entry.get("sha256") == digest and not entry.get("missing"):
+            self._remember_source(entry, source)
+            self._persist()
+            return "unchanged", entry
+
+        old = self._blob(slot)
+        if entry.get("sha256") and os.path.isfile(old):
+            keep = os.path.join(self.history_dir, f"{entry['sha256']}.yaml")
+            if not os.path.isfile(keep):
+                _atomic_write(keep, open(old, "rb").read(), self.tmp_dir)
+            entry.setdefault("history", []).append(
+                {"sha256": entry["sha256"], "bytes": entry.get("bytes"),
+                 "replaced": _now(), "source": [source]})
+
+        name, game = core.yaml_fields(data)
+        _atomic_write(old, data, self.tmp_dir)
+        if name and name not in entry.get("names_seen", []):
+            entry.setdefault("names_seen", []).append(name)
+        entry.update(name=name, game=game, sha256=digest, bytes=len(data),
+                     updated=_now(), missing=False)
+        self._remember_source(entry, source)
+        self._persist()
+        return "updated", entry
+
     @staticmethod
     def _remember_source(entry: dict, source: dict):
         sid = (source.get("kind"), source.get("id"))

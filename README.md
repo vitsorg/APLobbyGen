@@ -52,6 +52,11 @@ Generation touches the network exactly never.
   not contain. Worlds whose compiled modules target a different Python are
   reported before launch, because the dashboard would otherwise just show an
   empty reachability panel.
+- **Edit any game's settings as a form.** Archipelago generates a documented
+  template for every installed world, so the app reads that and builds the
+  editor from it - toggles, ranges with their real bounds, and lists to pick
+  from, with each option's own documentation. No game is special-cased, which
+  matters when 84 of them are installed.
 - **Local hosting.** Start the Archipelago server on this machine against the
   selected seed, with the server console right there. Nothing is uploaded.
 - **Publishing, when you want it.** Uploading to archipelago.gg is a separate,
@@ -105,7 +110,7 @@ save file.
 
 ## Tests
 
-Five suites, all offline except the one that deliberately hosts on loopback:
+Six suites, all offline except the one that deliberately hosts on loopback:
 
 ```
 python selftest_lobby.py     the store: identity, history, crash recovery
@@ -113,6 +118,7 @@ python selftest_sources.py   the importers, with the network stubbed
 python selftest_gui.py       drives the real window with nobody watching
 python selftest_serve.py     really starts a server, really connects to it
 python selftest_links.py     the upstream pointers and their four-state client map
+python selftest_options.py   option templates, the settings form, config rewriting
 ```
 
 They assert rather than print, so a silent pass is a real pass.
