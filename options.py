@@ -30,15 +30,57 @@ BOM = b"\xef\xbb\xbf"          # Windows editors add it; round-trip it faithfull
 RANDOM_KEYS = re.compile(r"^(random|random-low|random-high|random-range-[\d-]+)$")
 
 
+def _flatten(name: str) -> str:
+    """A name with punctuation and case thrown away, for matching filenames."""
+    return re.sub(r"[^a-z0-9]+", "", name.lower())
+
+
 def template_path(game: str, ap_dir: str) -> str:
-    return os.path.join(ap_dir, "Players", "Templates", f"{game}.yaml")
+    """The template file for a game, found even if its name was not filename-safe.
+
+    Windows forbids : \\ / * ? " < > | in a filename, so a game whose name
+    contains one is written to a template that is not simply "<game>.yaml" -
+    "Jak and Daxter: The Precursor Legacy" loses its colon. Matching on the
+    name with punctuation ignored finds it without guessing which character
+    was dropped, and without a table of special cases.
+
+    Returns the exact path when nothing matches, so the caller's error names
+    the file it was looking for.
+    """
+    folder = os.path.join(ap_dir, "Players", "Templates")
+    exact = os.path.join(folder, f"{game}.yaml")
+    if os.path.isfile(exact):
+        return exact
+    want = _flatten(game)
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        return exact
+    for fn in names:
+        if fn.lower().endswith(".yaml") and _flatten(fn[: -len(".yaml")]) == want:
+            return os.path.join(folder, fn)
+    return exact
 
 
-def available(ap_dir: str) -> list[str]:
-    """Games with a generated template, newest install state wins."""
+def available(ap_dir: str, index: dict | None = None) -> list[str]:
+    """Games with a generated template.
+
+    With an installed-world `index`, this answers the question a caller
+    actually has - which games can I edit and then generate - and so returns
+    real game names, filtered to what is installed. Templates outlive the
+    worlds that produced them: uninstalling a world leaves its template behind,
+    and offering it leads to editing settings for a game that cannot generate.
+    A game whose name was not filename-safe is also only reachable this way,
+    since its template is not named after it.
+
+    Without an index it falls back to the filename stems, which is all there is
+    to go on.
+    """
     folder = os.path.join(ap_dir, "Players", "Templates")
     if not os.path.isdir(folder):
         return []
+    if index is not None:
+        return sorted(g for g in index if os.path.isfile(template_path(g, ap_dir)))
     return sorted(f[: -len(".yaml")] for f in os.listdir(folder)
                   if f.lower().endswith(".yaml"))
 
@@ -67,8 +109,12 @@ def parse(game: str, ap_dir: str) -> list[dict]:
         raise FileNotFoundError(f"no template for {game!r} ({exc}). Run "
                                 "Archipelago's 'Generate Template Options'.") from exc
 
-    # Everything after the "<Game>:" line is that game's own options.
-    head = re.search(rf"^{re.escape(game)}:\s*$", text, re.M)
+    # Everything after the "<Game>:" line is that game's own options. The key is
+    # quoted when the name contains a colon - 'Jak and Daxter: The Precursor
+    # Legacy': - because unquoted it would not be valid YAML. Missing that meant
+    # reading the whole file as the body and parsing the shared preamble as
+    # options, so the form offered one nonsense setting instead of the game's.
+    head = re.search(rf"^['\"]?{re.escape(game)}['\"]?:\s*$", text, re.M)
     body = text[head.end():] if head else text
 
     out, section, doc, key, values = [], None, [], None, {}

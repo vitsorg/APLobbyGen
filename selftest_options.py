@@ -24,7 +24,32 @@ ok = lambda msg: print(f"  ok   {msg}")
 def main() -> int:
     games = opts.available(core.AP_DEFAULT)
     assert games, "no templates found - run Archipelago's Generate Template Options"
-    ok(f"{len(games)} installed games have a template")
+    ok(f"{len(games)} templates on disk")
+
+    # Templates outlive their worlds: uninstalling one leaves its template, and
+    # offering it means editing settings for a game that cannot generate. Asked
+    # with the installed index, available() answers real game names only.
+    index = core.index_worlds(core.AP_DEFAULT)
+    if index:
+        installed = opts.available(core.AP_DEFAULT, index)
+        assert installed, "no installed game has a template"
+        assert set(installed) <= set(index), sorted(set(installed) - set(index))
+        ok(f"{len(installed)} of {len(games)} templates belong to an installed game")
+
+        # A game whose name carries a colon cannot be a filename on Windows, so
+        # its template is NOT named after it - and inside, its options block is
+        # quoted. Both of those read as "no options" before.
+        odd = [g for g in installed if any(c in g for c in ':\\/*?"<>|')]
+        for game in odd:
+            path = opts.template_path(game, core.AP_DEFAULT)
+            assert os.path.isfile(path), (game, path)
+            assert os.path.basename(path) != f"{game}.yaml"
+            spec = opts.parse(game, core.AP_DEFAULT)
+            assert len(spec) > 4, (game, [o["key"] for o in spec])
+            assert any(o["key"] == "progression_balancing" for o in spec), game
+        if odd:
+            ok(f"a game named with punctuation parses properly: {odd[0]!r} "
+               f"-> {len(opts.parse(odd[0], core.AP_DEFAULT))} options")
 
     # -- parsing a real one -------------------------------------------
     spec = opts.parse("EarthBound", core.AP_DEFAULT)
