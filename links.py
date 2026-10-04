@@ -134,7 +134,11 @@ def for_slug(slug: str, registry: dict, ships_client_code: bool | None = None) -
 def for_row(row: dict, registry: dict) -> dict:
     """The links for one preflight row, which carries the world filename."""
     world = row.get("world") or ""
-    slug = world[: -len(".apworld")] if world.endswith(".apworld") else ""
+    # preflight records the slug, because the filename no longer implies it: a
+    # world installed as a folder has no .apworld to strip. Older run locks
+    # predate the field, so fall back to the filename for those.
+    slug = row.get("world_slug") or (
+        world[: -len(".apworld")] if world.endswith(".apworld") else "")
     if not slug:
         return {"slug": None, "world": None,
                 "client": {"state": UNKNOWN, "note": "no world file installed"},
@@ -207,7 +211,7 @@ def unknown_slugs(index: dict, registry: dict) -> list[str]:
     """
     out = []
     for hit in index.values():
-        slug = hit["file"][: -len(".apworld")]
+        slug = hit["slug"]
         if client(slug, registry, hit["ships_client_code"])["state"] == UNKNOWN:
             out.append(slug)
     return sorted(out)
@@ -227,7 +231,7 @@ def lobby_slugs(index: dict, root: str | None = None) -> list[str]:
             games = {e.get("game") for e in lb.entries if e.get("game")}
     except Exception:
         return []
-    out = {index[g]["file"][: -len(".apworld")] for g in games if g in index}
+    out = {index[g]["slug"] for g in games if g in index}
     return sorted(out)
 
 
@@ -273,20 +277,20 @@ def main(argv=None) -> int:
     rows = sorted(index.items(), key=lambda kv: kv[1]["file"])
     playing = set(lobby_slugs(index)) if args.lobby_first else set()
     if playing:
-        rows.sort(key=lambda kv: (kv[1]["file"][: -len(".apworld")] not in playing,
+        rows.sort(key=lambda kv: (kv[1]["slug"] not in playing,
                                   kv[1]["file"]))
     if args.resources:
         roms = host_roms(args.ap)
-        shown = [kv for kv in rows if kv[1]["file"][: -len(".apworld")] in roms]
+        shown = [kv for kv in rows if kv[1]["slug"] in roms]
         if playing:
             shown = [kv for kv in shown
-                     if kv[1]["file"][: -len(".apworld")] in playing] or shown
+                     if kv[1]["slug"] in playing] or shown
         print(f"{len(shown)} installed world(s) patch a base ROM you supply "
               "yourself.")
         print("A ROM is needed only to PLAY that game - generating and hosting "
               "never touch one.\n")
         for game, hit in shown:
-            slug = hit["file"][: -len(".apworld")]
+            slug = hit["slug"]
             st = rom_status(slug, roms, args.ap)
             mark = "have" if st["found"] else "MISSING"
             print(f"  {mark:8} {slug:16} {st['rom']}")
@@ -313,7 +317,7 @@ def main(argv=None) -> int:
         return 0
 
     for game, hit in rows:
-        slug = hit["file"][: -len(".apworld")]
+        slug = hit["slug"]
         info = for_slug(slug, registry, hit["ships_client_code"])
         w, c = info["world"], info["client"]
         print(f"{slug:24} {game}")

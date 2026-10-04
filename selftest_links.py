@@ -144,6 +144,31 @@ def main() -> int:
     # -- against the real install --------------------------------------
     index = core.index_worlds(core.AP_DEFAULT)
     if index:
+        # Every entry carries its own slug, because the filename stopped
+        # implying it: a world installed as a folder has no .apworld to strip,
+        # and stripping it anyway turned "alttp" into "".
+        assert all(hit["slug"] for hit in index.values()), [
+            g for g, h in index.items() if not h["slug"]]
+        assert all(hit["kind"] in ("file", "folder") for hit in index.values())
+        ok(f"all {len(index)} indexed worlds carry a slug and a kind")
+
+        folders = {g: h for g, h in index.items() if h["kind"] == "folder"}
+        if folders:
+            assert all(h["sha256"] and h["bytes"] for h in folders.values()), folders
+            ok(f"{len(folders)} world(s) installed as a folder are indexed too, "
+               f"with a digest: {', '.join(sorted(folders)[:3])}...")
+            # The gap this closes: preflight resolving a folder world's game.
+            game = sorted(folders)[0]
+            rows = [{"name": "T", "game": game}]
+            _idx, used, missing = core.preflight(rows, core.AP_DEFAULT)
+            assert not missing and game in used, (missing, list(used))
+            assert rows[0]["world_slug"] == folders[game]["slug"]
+            ok(f"preflight resolves {game!r} instead of calling it missing")
+            # ...and its links resolving off the slug rather than the filename.
+            info = links.for_row(rows[0], reg)
+            assert info["slug"] == folders[game]["slug"], info
+            ok("its links resolve from the recorded slug, not the filename")
+
         todo = links.unknown_slugs(index, reg)
         assert len(todo) < len(index), "nothing at all is known"
         ok(f"{len(index) - len(todo)} of {len(index)} installed worlds have a "

@@ -113,6 +113,10 @@ def sync_worlds(run_dir: str, bridge_root: str | None = None,
                            "custom_worlds" if w.get("source") == "custom"
                            else os.path.join("lib", "worlds"),
                            w["file"])
+        # Not a file means a world installed as a folder, which is always one of
+        # Archipelago's own bundled worlds (alttp, oot and the rest). The bridge
+        # runs from an AP checkout, so it already has those as real packages -
+        # there is nothing to copy, and copying would shadow its own copy.
         if not os.path.isfile(src):
             continue
         dest = os.path.join(dest_dir, w["file"])
@@ -160,14 +164,25 @@ def bytecode_mismatch(run_dir: str, bridge_root: str | None = None,
         src = os.path.join(ap_dir,
                            "custom_worlds" if w.get("source") == "custom"
                            else os.path.join("lib", "worlds"), w["file"])
-        if not os.path.isfile(src):
-            continue
         try:
-            z = zipfile.ZipFile(src)
-            pyc = next((n for n in z.namelist() if n.endswith(".pyc")), None)
-            if not pyc:
-                continue                      # ships source: any Python can read it
-            got = binascii.hexlify(z.read(pyc)[:4]).decode()
+            if os.path.isdir(src):
+                # A world installed as a folder rather than an .apworld. These
+                # are the ones that ship only .pyc, so they are the likeliest
+                # to mismatch, not a case worth skipping.
+                pyc = next((os.path.join(root, n)
+                            for root, _dirs, names in os.walk(src)
+                            for n in sorted(names) if n.endswith(".pyc")), None)
+                if not pyc:
+                    continue                  # ships source: any Python can read it
+                got = binascii.hexlify(open(pyc, "rb").read(4)).decode()
+            elif os.path.isfile(src):
+                z = zipfile.ZipFile(src)
+                pyc = next((n for n in z.namelist() if n.endswith(".pyc")), None)
+                if not pyc:
+                    continue
+                got = binascii.hexlify(z.read(pyc)[:4]).decode()
+            else:
+                continue
         except Exception:
             continue
         if want and got != want:

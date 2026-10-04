@@ -26,9 +26,11 @@ Generation touches the network exactly never.
   `.yaml` files. Re-importing an unchanged config is a no-op; a changed one
   updates in place and keeps the previous version.
 - **Preflight that tells you the truth.** Every player's game is resolved against
-  the `.apworld` files actually installed, so you learn about a missing world
-  before generating, not after. Worlds that ship a client are flagged: every
-  player needs the byte-identical file.
+  the worlds actually installed, so you learn about a missing world before
+  generating, not after. Both shapes count: a zipped `.apworld` and the bundled
+  worlds Archipelago ships unzipped as folders, which a scan for `*.apworld`
+  alone would report as missing while they sit right there. Worlds that ship a
+  client are flagged: every player needs the byte-identical file.
 - **Dropped settings are a failure, not a footnote.** When a config asks for an
   option the installed world does not have, Archipelago drops it silently and
   generates a seed that looks fine while a player quietly does not get the game
@@ -56,7 +58,8 @@ Generation touches the network exactly never.
   template for every installed world, so the app reads that and builds the
   editor from it - toggles, ranges with their real bounds, and lists to pick
   from, with each option's own documentation. No game is special-cased, which
-  matters when 84 of them are installed.
+  matters when a hundred of them are installed. Templates outlive the worlds
+  that produced them, so only games you can actually generate are offered.
 - **Local hosting.** Start the Archipelago server on this machine against the
   selected seed, with the server console right there. Nothing is uploaded.
 - **Publishing, when you want it.** Uploading to archipelago.gg is a separate,

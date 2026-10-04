@@ -169,26 +169,90 @@ def ap_version(ap_dir: str):
         return None
 
 
+def folder_world(path: str):
+    """(game, ships_client_code) for a world installed as a folder, not a zip.
+
+    Archipelago does not ship every bundled world as an .apworld: the ones
+    carrying patching data - alttp, oot, sm64ex and friends - stay unzipped
+    under lib/worlds. A scan for *.apworld alone therefore reports them as
+    not installed, and preflight tells a player their game is missing while
+    it sits right there in the install.
+
+    The name comes from the world's own documentation file, which AP names
+    `docs/en_<Game>.md`. These folders ship only .pyc, so there is no source
+    to read a `game = "..."` out of and no archipelago.json to parse - the
+    docs filename is the one place the real name survives uncompiled. The
+    support packages beside them (generic, _bizhawk, _sc2common) have no such
+    file, which is exactly how they get skipped rather than special-cased.
+    """
+    try:
+        names = sorted(os.listdir(os.path.join(path, "docs")))
+    except OSError:
+        return None, False
+    doc = next((n for n in names
+                if n.startswith("en_") and n.endswith(".md")), None)
+    if not doc:
+        return None, False
+    client = any(os.path.isfile(os.path.join(path, f)) for f in
+                 ("Client.py", "Client.pyc", "client.py", "client.pyc"))
+    return doc[len("en_"):-len(".md")], client
+
+
+def folder_digest(path: str):
+    """(bytes, sha256) over a folder's contents, as one identity for the world.
+
+    Each file's relative path is hashed along with its bytes, paths sorted and
+    separators normalised, so the digest describes the world rather than the
+    order the filesystem happened to walk it in - and so it stays comparable
+    between machines the way an .apworld's own sha256 is.
+    """
+    digest, total = hashlib.sha256(), 0
+    found = []
+    for root, dirs, names in os.walk(path):
+        dirs.sort()
+        for name in names:
+            full = os.path.join(root, name)
+            found.append((os.path.relpath(full, path).replace("\\", "/"), full))
+    for rel, full in sorted(found):
+        data = open(full, "rb").read()
+        digest.update(rel.encode("utf-8") + b"\0" + data)
+        total += len(data)
+    return total, digest.hexdigest()
+
+
 def index_worlds(ap_dir: str):
-    """{game name: {...}} across custom_worlds and the bundled worlds."""
+    """{game name: {...}} across custom_worlds and the bundled worlds.
+
+    Both shapes a world can be installed in are indexed - a zipped .apworld
+    and an unzipped folder - and the entry carries `kind` saying which, since
+    anything that opens the world as a zip has to know the difference.
+    """
     index = {}
     for folder, source in ((os.path.join(ap_dir, "custom_worlds"), "custom"),
                            (os.path.join(ap_dir, "lib", "worlds"), "core")):
         if not os.path.isdir(folder):
             continue
         for fn in sorted(os.listdir(folder)):
-            if not fn.endswith(".apworld"):
-                continue
             path = os.path.join(folder, fn)
-            data = open(path, "rb").read()
-            game, client = world_game(data)
+            if fn.endswith(".apworld") and os.path.isfile(path):
+                data = open(path, "rb").read()
+                game, client = world_game(data)
+                kind, slug = "file", fn[: -len(".apworld")]
+                size, digest = len(data), sha256(data)
+            elif os.path.isdir(path) and not fn.startswith("."):
+                game, client = folder_world(path)
+                kind, slug = "folder", fn
+                size, digest = folder_digest(path) if game else (0, "")
+            else:
+                continue
             if not game:
                 continue
             # custom_worlds wins: it is what the generator prefers too
             if game in index and source == "core":
                 continue
             index[game] = {"file": fn, "path": path, "source": source,
-                           "bytes": len(data), "sha256": sha256(data),
+                           "slug": slug, "kind": kind,
+                           "bytes": size, "sha256": digest,
                            "ships_client_code": client}
     return index
 
@@ -209,6 +273,9 @@ def preflight(players, ap_dir):
     for p in players:
         hit = index.get(p.get("game"))
         p["world"] = hit["file"] if hit else None
+        # The slug no longer follows from the filename - a world installed as a
+        # folder has no .apworld to strip - so record it rather than re-derive it.
+        p["world_slug"] = hit["slug"] if hit else None
         p["must_match"] = bool(hit and hit["ships_client_code"])
         if hit:
             used[p["game"]] = hit
