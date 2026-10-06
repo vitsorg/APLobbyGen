@@ -35,3 +35,6 @@ ui.json
 
 # written only when the windowed launcher fails to start
 crash.log
+
+# a lock written outside runs/ or lobby/ is still generated output
+*.lock.json
