@@ -72,7 +72,8 @@ Generation touches the network exactly never.
 - Windows (the app shells out to `ArchipelagoGenerate.exe` and
   `ArchipelagoServer.exe`, and uses `os.startfile`)
 - Python 3.10 or newer, with tkinter - the standard python.org installer has it
-- An Archipelago install, by default `C:\ProgramData\Archipelago`
+- An Archipelago install, by default `C:\ProgramData\Archipelago` - tested
+  against 0.6.8
 
 ## Getting started
 

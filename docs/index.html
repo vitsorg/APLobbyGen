@@ -139,9 +139,12 @@
   </li>
   <li>
     <b>Preflight that tells you the truth</b>
-    Every player's game is resolved against the <code>.apworld</code> files
-    actually installed, so a missing world is something you learn before
-    generating, not after.
+    Every player's game is resolved against the worlds actually installed, so a
+    missing world is something you learn before generating, not after. Both
+    shapes count: a zipped <code>.apworld</code> and the bundled worlds
+    Archipelago ships unzipped as folders, which a scan for
+    <code>*.apworld</code> alone would report as missing while they sit right
+    there in the install.
   </li>
   <li>
     <b>Dropped settings are a failure, not a footnote</b>
@@ -163,24 +166,68 @@
     claim was read from, and the games in your lobby are checked first.
   </li>
   <li>
+    <b>Edit any game's settings as a form</b>
+    Archipelago generates a documented template for every installed world, so
+    the app reads that and builds the editor from it &mdash; toggles, ranges
+    with their real bounds, and lists to pick from, each with the option's own
+    documentation. No game is special-cased, which matters when a hundred of
+    them are installed.
+  </li>
+  <li>
+    <b>One chosen seed, visibly</b>
+    The seed being hosted or published is picked from a list of every run on
+    disk, shown by name, date and size. Both destinations use that one choice
+    rather than each resolving its own idea of &ldquo;the latest&rdquo;.
+  </li>
+  <li>
     <b>Host it locally</b>
     Start the Archipelago server on this machine against the seed you just made,
     with the server console right there. Publishing to archipelago.gg stays a
     separate, deliberate step.
   </li>
+  <li>
+    <b>A tracker, launched for you</b>
+    The local tracker bridge can be started against the seed being hosted, with
+    its slots read from that run's lock rather than typed &mdash; so it cannot
+    end up watching a slot the running room does not contain. Worlds whose
+    compiled modules target a different Python are reported before launch,
+    because the dashboard would otherwise just show an empty panel.
+  </li>
+  <li>
+    <b>The files you supply yourself</b>
+    Some worlds patch a base ROM you have to own. Those are listed with whether
+    the file is actually in place, so a seed that cannot be played is something
+    you find out before generating it rather than after.
+  </li>
+  <li>
+    <b>Light and dark</b>
+    Follows the Windows setting by default, with its own window icon and a
+    desktop shortcut so it is findable in a crowded taskbar.
+  </li>
 </ul>
 
 <h2>Getting started</h2>
-<p>Windows, Python 3.10 or newer with tkinter, and an Archipelago install.</p>
+<p>
+  Windows, Python 3.10 or newer with tkinter, and an Archipelago install
+  &mdash; tested against Archipelago 0.6.8.
+</p>
 <pre><code>git clone https://github.com/vitsorg/APLobbyGen
 cd APLobbyGen
 python aplobby_gui.py</code></pre>
+<p class="muted">
+  Or <code>python make_shortcut.py --start-menu</code> to launch it from a
+  desktop shortcut with its own icon and no console window behind it.
+</p>
 
 <h3>Or from the command line</h3>
 <pre><code>python aplobby.py import folder path\to\configs   add configs to the lobby
 python aplobby.py list                            show the roster
 python aplobby.py generate                        build a seed, no network
-python aplobby.py host                            host it on this machine</code></pre>
+python aplobby.py seeds                           list seeds you can host
+python aplobby.py host                            host it on this machine
+python links.py --lobby-first                     upstreams, your games first
+python links.py --missing                         clients nobody has investigated
+python links.py --resources                       base ROMs you supply yourself</code></pre>
 
 <div class="note">
   <b>Nothing is downloaded for you.</b> The tool tells you which world file and
@@ -191,7 +238,7 @@ python aplobby.py host                            host it on this machine</code>
 
 <h2>Verification</h2>
 <p>
-  Five test suites, all offline except the one that deliberately hosts on
+  Six test suites, all offline except the one that deliberately hosts on
   loopback and connects to itself. They assert rather than print, so a silent
   pass is a real pass &mdash; including one that drives the real window with
   nobody watching.
@@ -200,7 +247,8 @@ python aplobby.py host                            host it on this machine</code>
 python selftest_sources.py   the importers, with the network stubbed
 python selftest_gui.py       drives the real window with nobody watching
 python selftest_serve.py     really starts a server, really connects to it
-python selftest_links.py     the upstream pointers and their client states</code></pre>
+python selftest_links.py     the upstream pointers and their client states
+python selftest_options.py   option templates, the settings form, config rewriting</code></pre>
 
 <h2>Licence and contributing</h2>
 <p>
