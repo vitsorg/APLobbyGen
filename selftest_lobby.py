@@ -216,6 +216,39 @@ def main() -> int:
         assert all(re.match(r"p\d{3}$", p["slot"]) for p in doc["players"])
         ok("manifest is well-formed and every slot id is opaque")
 
+        # -- the run lock names both versions -----------------------------
+        # A seed is explicable later only if the lock says what produced it,
+        # and that is two things, not one: Archipelago's version AND this
+        # app's, because what preflight accepts has already changed once.
+        lock_path = os.path.join(root, "run.lock.json")
+        written = core.write_lock(
+            lock_path,
+            players=[{"name": "Tester", "game": "Outer Wilds",
+                      "world": "outer_wilds.apworld", "world_slug": "outer_wilds",
+                      "must_match": False, "source": {"kind": "test"}}],
+            used={"Outer Wilds": {"file": "outer_wilds.apworld", "path": "x",
+                                  "source": "custom", "slug": "outer_wilds",
+                                  "kind": "file", "bytes": 1, "sha256": "ab",
+                                  "ships_client_code": False}},
+            warnings=[], ap_dir=os.path.join(root, "no-such-ap"),
+            seed_zip=None, spoiler=None, excluded=[])
+        back = json.load(open(lock_path, encoding="utf-8"))
+        assert back == written, "what was returned is not what was written"
+        assert back["schema"] == "aplobby-run/3", back["schema"]
+        ok(f"the lock declares its schema: {back['schema']}")
+        assert back["aplobby_version"] == core.__version__
+        assert re.fullmatch(r"\d+\.\d+\.\d+", core.__version__), core.__version__
+        ok(f"it records which build of this app made the seed: "
+           f"{back['aplobby_version']}")
+        assert "archipelago_version" in back, sorted(back)
+        ok("and Archipelago's version alongside it, even when unreadable")
+        # The path that strips it must not strip the new field with it.
+        assert "must_match" not in back["players"][0], back["players"][0]
+        assert back["players"][0]["world_slug"] == "outer_wilds"
+        assert "path" not in back["worlds"]["Outer Wilds"]
+        assert back["worlds"]["Outer Wilds"]["slug"] == "outer_wilds"
+        ok("players and worlds keep their slugs, and drop what is local-only")
+
         print("\nall checks passed")
         return 0
     finally:

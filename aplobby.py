@@ -42,6 +42,8 @@ import zipfile
 import lobby
 import sources
 
+__version__ = "0.1.0"
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 AP_DEFAULT = r"C:\ProgramData\Archipelago"
 LOBBY = "https://ap-lobby.ionium.us"
@@ -341,10 +343,18 @@ def run_sources(players):
 
 
 def write_lock(path, *, players, used, warnings, ap_dir, seed_zip, spoiler, excluded):
-    """Record exactly what went into this seed, beside the seed."""
+    """Record exactly what went into this seed, beside the seed.
+
+    The lock names the version of THIS app as well as Archipelago's, because
+    what the app accepts is part of what produced the seed and it changes:
+    preflight used to report a world installed as a folder as missing, so a
+    roster that fails to stage under one build stages cleanly under the next.
+    Recording only Archipelago's version left two such runs indistinguishable.
+    """
     lock = {
-        "schema": "aplobby-run/2",
+        "schema": "aplobby-run/3",
         "generated": datetime.datetime.now().isoformat(timespec="seconds"),
+        "aplobby_version": __version__,
         "archipelago_version": ap_version(ap_dir),
         "sources": run_sources(players),
         "seed_zip": os.path.basename(seed_zip) if seed_zip else None,
