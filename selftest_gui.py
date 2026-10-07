@@ -238,27 +238,42 @@ def main() -> int:
             assert aplobby_gui.claim_taskbar_identity(), "no AppUserModelID"
             ok("an AppUserModelID is claimed, so the taskbar shows this app's icon")
 
-            # -- the tracker launcher ---------------------------------------
-            import tracker as trk
+            # -- the tracker launcher, if the add-on is installed ------------
+            # tracker.py is not part of the app: it drives a bridge from
+            # another project. Absent, the window must simply not offer it.
             try:
-                trk.find_bridge()
-            except trk.TrackerError as exc:
-                print(f"  --   tracker bridge unavailable, skipping ({exc})")
+                import tracker as trk
+            except ImportError:
+                trk = None
+            if trk is None:
+                assert aplobby_gui.tracker is None
+                assert app.track_btn is None and app.track_var is None
+                app._refresh_tracker_state()          # must not blow up
+                ok("no tracker add-on: the button is absent, not broken")
             else:
-                # Any run whose lock exists will do; take the newest seed's.
-                newest = core.latest_seed()
-                run_dir = os.path.dirname(os.path.dirname(newest)) if newest else ""
-                if run_dir and os.path.isfile(os.path.join(run_dir, "run.lock.json")):
-                    slots = trk.slots_from_lock(run_dir)
-                    assert slots and all(":" in s for s in slots), slots
-                    ok(f"slots come from the run lock: {', '.join(slots)}")
-                    bad = trk.bytecode_mismatch(run_dir)
-                    for b in bad:
-                        assert b["magic"] != b["bridge_magic"], b
-                    ok(f"bytecode check ran: {len(bad)} world(s) the tracker cannot import")
-                assert app.bridge is None
-                assert str(app.track_btn["text"]) == "Tracker"
-                ok("the tracker button starts idle and needs a seed")
+                reachable = True
+                try:
+                    trk.find_bridge()
+                except trk.TrackerError as exc:
+                    reachable = False
+                    print(f"  --   tracker bridge unavailable, skipping ({exc})")
+                if reachable:
+                    # Any run whose lock exists will do; take the newest seed's.
+                    newest = core.latest_seed()
+                    run_dir = os.path.dirname(os.path.dirname(newest)) if newest else ""
+                    if run_dir and os.path.isfile(
+                            os.path.join(run_dir, "run.lock.json")):
+                        slots = trk.slots_from_lock(run_dir)
+                        assert slots and all(":" in s for s in slots), slots
+                        ok(f"slots come from the run lock: {', '.join(slots)}")
+                        bad = trk.bytecode_mismatch(run_dir)
+                        for b in bad:
+                            assert b["magic"] != b["bridge_magic"], b
+                        ok(f"bytecode check ran: {len(bad)} world(s) "
+                           "the tracker cannot import")
+                    assert app.bridge is None
+                    assert str(app.track_btn["text"]) == "Tracker"
+                    ok("the tracker button starts idle and needs a seed")
 
             # -- a bad Archipelago path degrades, not explodes --------------
             app.lobby_root = lobby_root

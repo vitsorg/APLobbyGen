@@ -38,3 +38,7 @@ crash.log
 
 # a lock written outside runs/ or lobby/ is still generated output
 *.lock.json
+
+# the tracker add-on: drives a bridge that lives in its own project, so it
+# is not part of this app and is not distributed with it
+tracker.py

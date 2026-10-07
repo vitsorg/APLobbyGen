@@ -28,7 +28,15 @@ import optionsdlg
 import serve
 import sources
 import theme
-import tracker
+
+try:
+    import tracker
+except ImportError:
+    # The tracker is a separate add-on: it drives a bridge that lives in its
+    # own project, so it is not part of this app. Absent, the app simply does
+    # not offer it - which is better than a button that fails with a path from
+    # somebody else's machine. Drop tracker.py in beside this file to enable it.
+    tracker = None
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -57,7 +65,7 @@ class App(ttk.Frame):
         self.lobby_root = os.path.join(HERE, "lobby")
         self.server: serve.Server | None = None
         self.host_urls: list[str] = []
-        self.bridge: tracker.Bridge | None = None
+        self.bridge = None                # tracker.Bridge, when the add-on is present
 
         # Paint before building: ttk styles are global, so widgets created
         # afterwards are born with the right colours and never flash white.
@@ -190,10 +198,14 @@ class App(ttk.Frame):
                                    state="disabled")
         self.addr_btn.pack(side="left")
 
-        self.track_btn = ttk.Button(row, text="Tracker", command=self.toggle_tracker)
-        self.track_btn.pack(side="left", padx=(12, 0))
-        self.track_var = tk.StringVar(value=str(tracker.DEFAULT_HTTP_PORT))
-        ttk.Entry(row, textvariable=self.track_var, width=6).pack(side="left", padx=(4, 0))
+        self.track_btn = None
+        self.track_var = None
+        if tracker is not None:
+            self.track_btn = ttk.Button(row, text="Tracker", command=self.toggle_tracker)
+            self.track_btn.pack(side="left", padx=(12, 0))
+            self.track_var = tk.StringVar(value=str(tracker.DEFAULT_HTTP_PORT))
+            ttk.Entry(row, textvariable=self.track_var, width=6).pack(
+                side="left", padx=(4, 0))
 
         # The server console is how you test: /players, /release, /collect.
         self.cmd_var = tk.StringVar()
@@ -1128,6 +1140,8 @@ class App(ttk.Frame):
         self.msgs.put(("status", "Tracker stopped."))
 
     def _refresh_tracker_state(self):
+        if self.track_btn is None:        # add-on not installed
+            return
         on = bool(self.bridge and self.bridge.running)
         self.track_btn.configure(text="Stop tracker" if on else "Tracker")
 

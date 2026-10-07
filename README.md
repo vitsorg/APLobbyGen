@@ -48,12 +48,6 @@ Generation touches the network exactly never.
   from a list of every run on disk, shown by name, date and size, and both
   destinations use that one choice rather than each resolving its own idea of
   "the latest".
-- **A tracker, launched for you.** The local tracker bridge can be started
-  against the seed being hosted, with its slots read from that run's lock
-  rather than typed - so it cannot end up watching a slot the running room does
-  not contain. Worlds whose compiled modules target a different Python are
-  reported before launch, because the dashboard would otherwise just show an
-  empty reachability panel.
 - **Edit any game's settings as a form.** Archipelago generates a documented
   template for every installed world, so the app reads that and builds the
   editor from it - toggles, ranges with their real bounds, and lists to pick
